@@ -1,8 +1,61 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 3 (M4 QA APPROVED — M5 unblocked)
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 4 (M5 COMPLETE — awaiting QA)
+
+---
+
+## Current State: ✅ M5 COMPLETE — Build clean — Ready for QA
+
+---
+
+## Sprint 4 (M5) — pixel-coder, 2026-03-24
+
+### Summary
+Persistence guards and extension wiring — OpenClaw agents now survive VS Code restarts and
+are cleaned up correctly via `context.subscriptions`. All four QA pre-conditions from M4
+review resolved.
+
+### Files changed
+| File | Change |
+|------|--------|
+| `src/agentManager.ts` | Fix 1: `restoreAgents` guards `startFileWatching` behind `agentSource === 'claude-code'`; Fix 2: `maxId` scan excludes OpenClaw IDs (`< 100000`) |
+| `src/extension.ts` | Fix 3: `context.subscriptions.push({ dispose: stopOpenClawWatcher })` added |
+
+### Fix 1 — `restoreAgents` source guard ✅
+Wrapped the entire `startFileWatching` block (both the `existsSync` branch and the
+`setInterval` poll-for-file branch) in `if (agentSource === 'claude-code')`.  
+OpenClaw agents are re-discovered by `startOpenClawWatcher` on extension startup (D6).
+Claude Code file parser never runs on OpenClaw JSONL files; no leaked watchers/timers.
+
+### Fix 2 — ID counter collision on restore ✅
+Changed `if (p.id > maxId) maxId = p.id;` to
+`if ((p.id || 0) < 100000 && p.id > maxId) maxId = p.id;`.
+OpenClaw IDs (≥ 100000 or ≥ 10000 per `OPENCLAW_AGENT_ID_START`) no longer advance
+`nextAgentIdRef.current` into the OpenClaw ID space. Claude Code IDs remain sequential
+from 1 regardless of how many OpenClaw agents are persisted.
+
+### Fix 3 — `context.subscriptions` wiring ✅
+Added `context.subscriptions.push({ dispose: () => stopOpenClawWatcher() })` after
+`startOpenClawWatcher(context, provider)` in `activate()`.  
+The watcher is now cleaned up by VS Code's extension lifecycle (subscriptions disposed on
+deactivation) AND by the explicit `stopOpenClawWatcher()` call in `deactivate()` — belt and
+suspenders; second call is safe (idempotent by null-checks in `stopOpenClawWatcher`).
+
+### Fix 4 — `activeToolIds` consistency ✅ (already done in M4 Rev2)
+`handleParserEvent` in `openclawWatcher.ts` already maintains `activeToolIds` in all three
+cases:
+- `agentToolStart` → `agent.activeToolIds.add(toolId)` (line 290)
+- `agentToolDone`  → `agent.activeToolIds.delete(toolId)` (line 311)
+- `agentStatus` (waiting) → `agent.activeToolIds.clear()` (line 261)
+M4 Rev2 resolved this before QA's MINOR NOTE was filed. No changes needed.
+
+### Build
+`npm run compile` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
+
+### Commit
+`2b71381` — `feat: M5 persistence guards + extension wiring — OpenClaw agents live`
 
 ---
 
@@ -738,10 +791,15 @@ export async function listOpenClawAgents(): Promise<
 
 ---
 
-## Sprint 3 Complete (M4) / Sprint 4 Preview (M5)
+## Sprint 3 Complete (M4) / Sprint 4 Complete (M5)
 
 - [x] **M4**: `openclawWatcher.ts` — directory scanner + webview bridge ✅ DONE (2026-03-24)
-- [ ] **M5**: `PixelAgentsViewProvider.ts` — "Add OpenClaw" button: wires `listOpenClawAgents` + `watchOpenClawAgent` into the VS Code UI; per D8 the button auto-discovers existing sessions rather than spawning a new process
+- [x] **M5**: Persistence guards + extension wiring ✅ DONE (2026-03-24)
+  - Fix 1: `restoreAgents` source-gates `startFileWatching` to `claude-code` only
+  - Fix 2: `maxId` scan excludes OpenClaw IDs (< 100000) — no counter collision
+  - Fix 3: `context.subscriptions.push({ dispose: stopOpenClawWatcher })` — proper VS Code lifecycle cleanup
+  - Fix 4: `activeToolIds` already maintained in M4 Rev2 (confirmed, no change needed)
+  - Build: `npm run compile` ✅ clean — OpenClaw agents fully live end-to-end
 
 ---
 
