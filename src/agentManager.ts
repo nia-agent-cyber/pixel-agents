@@ -296,53 +296,61 @@ export function restoreAgents(
     agents.set(p.id, agent);
     knownJsonlFiles.add(p.jsonlFile);
 
-    if (p.id > maxId) maxId = p.id;
+    // Fix 2 (M5): Exclude OpenClaw IDs (≥ 100000) from the Claude Code counter.
+    // OpenClaw IDs must not advance nextAgentIdRef into the OpenClaw range.
+    if ((p.id || 0) < 100000 && p.id > maxId) maxId = p.id;
     restoredProjectDir = p.projectDir;
 
-    // Start file watching if JSONL exists, skipping to end of file
-    try {
-      if (fs.existsSync(p.jsonlFile)) {
-        const stat = fs.statSync(p.jsonlFile);
-        agent.fileOffset = stat.size;
-        startFileWatching(
-          p.id,
-          p.jsonlFile,
-          agents,
-          fileWatchers,
-          pollingTimers,
-          waitingTimers,
-          permissionTimers,
-          webview,
-        );
-      } else {
-        // Poll for the file to appear
-        const pollTimer = setInterval(() => {
-          try {
-            if (fs.existsSync(agent.jsonlFile)) {
-              console.log(`[Pixel Agents] Restored agent ${p.id}: found JSONL file`);
-              clearInterval(pollTimer);
-              jsonlPollTimers.delete(p.id);
-              const stat = fs.statSync(agent.jsonlFile);
-              agent.fileOffset = stat.size;
-              startFileWatching(
-                p.id,
-                agent.jsonlFile,
-                agents,
-                fileWatchers,
-                pollingTimers,
-                waitingTimers,
-                permissionTimers,
-                webview,
-              );
+    // Fix 1 (M5): Only start the Claude Code file watcher for claude-code agents.
+    // OpenClaw agents are re-discovered by startOpenClawWatcher on extension startup
+    // (DECISIONS.md D6); running the Claude Code parser on OpenClaw JSONL would
+    // silently leak fileWatchers / pollingTimers for OpenClaw agent IDs.
+    if (agentSource === 'claude-code') {
+      // Start file watching if JSONL exists, skipping to end of file
+      try {
+        if (fs.existsSync(p.jsonlFile)) {
+          const stat = fs.statSync(p.jsonlFile);
+          agent.fileOffset = stat.size;
+          startFileWatching(
+            p.id,
+            p.jsonlFile,
+            agents,
+            fileWatchers,
+            pollingTimers,
+            waitingTimers,
+            permissionTimers,
+            webview,
+          );
+        } else {
+          // Poll for the file to appear
+          const pollTimer = setInterval(() => {
+            try {
+              if (fs.existsSync(agent.jsonlFile)) {
+                console.log(`[Pixel Agents] Restored agent ${p.id}: found JSONL file`);
+                clearInterval(pollTimer);
+                jsonlPollTimers.delete(p.id);
+                const stat = fs.statSync(agent.jsonlFile);
+                agent.fileOffset = stat.size;
+                startFileWatching(
+                  p.id,
+                  agent.jsonlFile,
+                  agents,
+                  fileWatchers,
+                  pollingTimers,
+                  waitingTimers,
+                  permissionTimers,
+                  webview,
+                );
+              }
+            } catch {
+              /* file may not exist yet */
             }
-          } catch {
-            /* file may not exist yet */
-          }
-        }, JSONL_POLL_INTERVAL_MS);
-        jsonlPollTimers.set(p.id, pollTimer);
+          }, JSONL_POLL_INTERVAL_MS);
+          jsonlPollTimers.set(p.id, pollTimer);
+        }
+      } catch {
+        /* ignore errors during restore */
       }
-    } catch {
-      /* ignore errors during restore */
     }
   }
 

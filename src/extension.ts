@@ -26,7 +26,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Start watching ~/.openclaw/agents/ for OpenClaw agent sessions (DECISIONS.md D8).
   // Runs alongside the existing Claude Code fileWatcher — both are unaffected by each other.
+  // M5: Push a Disposable so VS Code cleans up on extension deactivation / uninstall,
+  // in addition to the explicit stopOpenClawWatcher() call in deactivate().
   startOpenClawWatcher(context, provider);
+  context.subscriptions.push({ dispose: () => stopOpenClawWatcher() });
 }
 
 export function deactivate() {
