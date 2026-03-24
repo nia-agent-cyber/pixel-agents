@@ -1,8 +1,193 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 3 (M4 complete — awaiting QA review)
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 3 (M4 QA APPROVED — M5 unblocked)
+
+---
+
+## Current State: ✅ M4 FULLY APPROVED — Sprint 3 (M5) UNBLOCKED
+
+---
+
+## QA Review — commit c6dfe3e (pixel-qa, 2026-03-24)
+
+### Verdict: ✅ APPROVED
+
+**All 9 checks pass. Build clean. No blocking issues. 3 pre-conditions documented for M5.**
+
+| Check | Result |
+|-------|--------|
+| `npm run build` | ✅ PASS — tsc + eslint + esbuild + vite, zero errors, zero warnings |
+| ID collision safety (`OPENCLAW_ID_BASE = 100000`) | ✅ PASS — safe for M4 (no persistence yet) |
+| Event bridging shapes (agentToolStart/Done/Status) | ✅ PASS — exact wire protocol match |
+| `AgentState` registration — all required fields | ✅ PASS — all fields populated |
+| Rescan deduplication guard | ✅ PASS — `sessionDisposables.has(key)` guard is correct |
+| State hygiene (`activeToolStatuses` / `isWaiting`) | ✅ PASS — updated on every event, replay-safe |
+| `dispose()` cleanup | ✅ PASS — stops all watchers + scan interval, clears tool queues |
+| Claude Code regression | ✅ PASS — zero changes to Claude Code path |
+| `extension.ts` integration | ✅ PASS — `context.subscriptions.push(startOpenClawWatcher(provider))` |
+
+---
+
+### ✅ PASS — Build Integrity
+`npm run build` completes clean on commit `c6dfe3e`: `tsc --noEmit` → `eslint src` → `esbuild` → `vite build`.
+Zero type errors, zero lint errors, zero build warnings.
+
+---
+
+### ✅ PASS — ID Collision Safety
+`OPENCLAW_ID_BASE = 100000` is safe for M4.
+
+- Claude Code IDs start at `nextAgentId.current = 1` (PixelAgentsViewProvider.ts:40) and increment by 1 per agent launch.
+- OpenClaw IDs start at `openclawIdCounter = 100000` and increment.
+- Since M4 does **not** call `persistAgents()`, `restoreAgents()` will never find OpenClaw agents in `workspaceState` and will never advance `nextAgentIdRef.current` into the OpenClaw range.
+- Therefore, no collision is possible in M4.
+
+**Pre-condition for M5 (see below):** When persistence is added, the current `maxId` logic in `restoreAgents()` will advance `nextAgentIdRef.current` past 100000, causing eventual collisions. Must be fixed before M5 adds persistence.
+
+---
+
+### ✅ PASS — Event Bridging Correctness
+All three event types translate correctly to the webview wire protocol:
+
+| Parser event | Webview message shape | Match? |
+|---|---|---|
+| `agentStatus { status:'working' }` | `{ type:'agentStatus', id:number, status:'active' }` | ✅ |
+| `agentStatus { status:'idle' }` | `{ type:'agentStatus', id:number, status:'waiting' }` | ✅ |
+| `agentToolStart { tool, input }` | `{ type:'agentToolStart', id:number, toolId:string, status:string }` | ✅ |
+| `agentToolDone { tool }` | `{ type:'agentToolDone', id:number, toolId:string }` | ✅ |
+
+Cross-checked against `sendCurrentAgentStatuses()` in `agentManager.ts` — replay on reconnect uses
+`agent.activeToolStatuses` (Map toolId→status) and `agent.isWaiting`, both correctly maintained by
+`handleParserEvent`. ✅
+
+---
+
+### ✅ PASS — Agent Registration
+`buildOpenClawAgent()` populates all required `AgentState` fields:
+- `id`, `source:'openclaw'`, `agentId`, `sessionKey`, `projectDir`, `jsonlFile` ✅
+- All collections initialised: `activeToolIds` (empty Set), `activeToolStatuses`, `activeToolNames`,
+  `activeSubagentToolIds`, `activeSubagentToolNames` (all empty Maps) ✅
+- `isWaiting:false`, `permissionSent:false`, `hadToolsInTurn:false` ✅
+- `fileOffset:0`, `lineBuffer:''` ✅ (parser starts fresh; re-reads from beginning on re-discover)
+- `terminalRef` absent (openclaw source — correct per D3) ✅
+
+---
+
+### ✅ PASS — Rescan Deduplication
+`registerSession()` guards on `sessionDisposables.has(key)` before registering. Module-level
+`sessionDisposables` is local to the `startOpenClawWatcher` closure; each new VS Code session
+starts fresh. Repeated scans of an already-watched session are correctly skipped. No duplicates
+possible within a single VS Code session. ✅
+
+---
+
+### ✅ PASS — State Hygiene
+`agent.activeToolStatuses` and `agent.activeToolNames` are updated on every `agentToolStart` /
+`agentToolDone` event, even before the webview is ready. `agent.isWaiting` is updated on every
+`agentStatus` event. This means `sendCurrentAgentStatuses()` (called by `sendExistingAgents` on
+`webviewReady`) will replay the correct live state to a freshly connecting webview. ✅
+
+---
+
+### ✅ PASS — Dispose / Cleanup
+`dispose()` in `startOpenClawWatcher`:
+1. Sets `disposed = true` — prevents in-flight async scan from registering new sessions ✅
+2. `clearInterval(scanTimer)` — stops periodic rescan ✅
+3. Iterates `sessionDisposables`: calls `disposable.dispose()` for each session (stops
+   `watchOpenClawAgent`'s triple-redundant watchers + idle timer) ✅
+4. Calls `clearToolQueues(numericId)` for each session's tool ID queues ✅
+5. `sessionDisposables.clear()` ✅
+
+`watchOpenClawAgent.dispose()` (M3) separately handles `clearIdleTimer`, `fsWatcher.close()`,
+`fs.unwatchFile`, `clearInterval(pollInterval)`. ✅
+
+---
+
+### ✅ PASS — Claude Code Regression
+- `fileWatcher.ts`, `transcriptParser.ts`, `timerManager.ts` — zero changes ✅
+- `agentManager.ts`, `PixelAgentsViewProvider.ts` — zero changes in M4 ✅
+- `openclawWatcher.ts` imports `formatToolStatus` from `transcriptParser.ts` (read-only; no mutation) ✅
+- Claude Code IDs (1, 2, 3…) and OpenClaw IDs (100000, 100001…) are disjoint ✅
+
+---
+
+### ✅ PASS — extension.ts Integration
+```typescript
+// After the three command registrations, before closing activate():
+context.subscriptions.push(startOpenClawWatcher(provider));
+```
+- Returned `vscode.Disposable` is pushed to `context.subscriptions` → cleaned up on extension deactivate ✅
+- `deactivate()` also calls `providerInstance?.dispose()` (PixelAgentsViewProvider) — unrelated to OpenClaw watcher, both run independently ✅
+- Import is correct: `import { startOpenClawWatcher } from './openclawWatcher.js'` ✅
+
+---
+
+### 📝 MINOR NOTE 1 — `activeToolIds` not maintained for OpenClaw agents (not blocking)
+
+`handleParserEvent` correctly updates `agent.activeToolStatuses` and `agent.activeToolNames` but
+does **not** call `agent.activeToolIds.add(toolId)` / `agent.activeToolIds.delete(toolId)`.
+
+This is **currently benign**: `activeToolIds` is only read in `transcriptParser.ts` and
+`timerManager.startPermissionTimer()`, both of which are exclusively in the Claude Code path.
+`sendCurrentAgentStatuses()` only iterates `activeToolStatuses`, not `activeToolIds`.
+
+**Recommendation (not blocking):** For consistency and to prevent future surprise, add
+`agent.activeToolIds.add(toolId)` on `agentToolStart` and `agent.activeToolIds.delete(toolId)` on
+`agentToolDone` in `handleParserEvent`. Fix in M5 cleanup pass.
+
+---
+
+### ⚠️ PRE-CONDITION FOR M5 — `restoreAgents` calls `startFileWatching` for all sources
+
+When M5 adds persistence for OpenClaw agents, `restoreAgents()` (agentManager.ts:307, 327) will
+call `startFileWatching()` (the **Claude Code** parser) for openclaw-source agents, since there is
+no `agentSource` guard around those calls.
+
+Currently harmless (M4 doesn't persist OpenClaw agents). When M5 adds persistence:
+- The Claude Code parser will watch OpenClaw JSONL files
+- All OpenClaw-format lines (`type:'message'`) will be silently ignored (no Claude Code records)
+- But `fileWatchers`, `pollingTimers`, `waitingTimers`, `permissionTimers` entries will be created
+  for OpenClaw agent IDs, leaking resources
+
+**Fix required in M5:** Add `if (agentSource !== 'claude-code') { continue; }` (or equivalent)
+before the `startFileWatching` block at agentManager.ts line ~301.
+
+---
+
+### ⚠️ PRE-CONDITION FOR M5 — ID collision on `restoreAgents` counter advancement
+
+When M5 persists OpenClaw agents, `restoreAgents()` will include their IDs (≥ 100000) in `maxId`
+and set `nextAgentIdRef.current = 100001+`. New Claude Code agents would then get IDs ≥ 100001,
+eventually colliding with new OpenClaw agents (also starting at 100000 on module reload).
+
+**Fix required in M5:** Either:
+- Exclude openclaw agent IDs from the `maxId` scan in `restoreAgents()`, OR
+- Store openclaw agents' last-used counter in `workspaceState` and restore `openclawIdCounter` from it
+
+---
+
+### Summary
+
+| Check | Result |
+|-------|--------|
+| Build integrity (`npm run build`) | ✅ PASS |
+| ID collision safety (M4) | ✅ PASS |
+| Event bridging — agentToolStart shape | ✅ PASS |
+| Event bridging — agentToolDone shape | ✅ PASS |
+| Event bridging — agentStatus shape + values | ✅ PASS |
+| AgentState field completeness | ✅ PASS |
+| Rescan deduplication | ✅ PASS |
+| State hygiene (activeToolStatuses / isWaiting) | ✅ PASS |
+| dispose() — scan timer + all watchers + tool queues | ✅ PASS |
+| Claude Code path — zero regression | ✅ PASS |
+| extension.ts — subscriptions cleanup | ✅ PASS |
+| `activeToolIds` consistency | 📝 MINOR (benign for M4) |
+| `restoreAgents` source-gate for `startFileWatching` | ⚠️ M5 PRE-CONDITION |
+| ID counter collision on restore | ⚠️ M5 PRE-CONDITION |
+
+**M5 may proceed. Two pre-conditions must be resolved before M5 adds OpenClaw persistence.**
 
 ---
 
@@ -10,62 +195,70 @@
 
 ---
 
-## Sprint 3 (M4) — pixel-coder, 2026-03-24 — commit c6dfe3e
+## Sprint 3 (M4) — pixel-coder, 2026-03-24
 
 ### Summary
-`src/openclawWatcher.ts` implemented — bridge layer between the M3 parser and the webview wire protocol.
+`src/openclawWatcher.ts` built — directory scanner + webview bridge. Auto-discovers OpenClaw sessions from `~/.openclaw/agents/` every 5 s and bridges `OpenClawParserEvent` → webview wire protocol using the existing `formatToolStatus` animation logic.
 
 ### Files changed
 | File | Change |
 |------|--------|
-| `src/openclawWatcher.ts` | **New** — full M4 bridge layer |
-| `src/constants.ts` | Added `OPENCLAW_ID_BASE = 100000` |
-| `src/extension.ts` | Added `startOpenClawWatcher(provider)` call + import |
+| `src/openclawWatcher.ts` | **New** — full M4 bridge layer (zero deps on modified files) |
+| `src/extension.ts` | Added `startOpenClawWatcher(context, provider)` + `stopOpenClawWatcher()` |
 
 ### Exported API
 ```typescript
-export function startOpenClawWatcher(provider: PixelAgentsViewProvider): vscode.Disposable
+export function startOpenClawWatcher(
+  context: vscode.ExtensionContext,
+  provider: AgentHost,   // structural interface — satisfied by PixelAgentsViewProvider
+): void
+
+export function stopOpenClawWatcher(): void
 ```
 
-### Integration point in extension.ts
+`AgentHost` is a local structural interface `{ agents: Map<number, AgentState>; webviewView: vscode.WebviewView | undefined }`.  
+No import of `PixelAgentsViewProvider` is required; loose coupling maintained (D5).
+
+### Integration in extension.ts
 ```typescript
-// After the two existing command registrations, before closing activate():
-context.subscriptions.push(startOpenClawWatcher(provider));
+// activate():
+startOpenClawWatcher(context, provider);
+
+// deactivate():
+stopOpenClawWatcher();
 ```
 
 ### Build
-`npm run build` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
+`npm run compile` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
 
 ### Implementation notes
 
-**1. Stable string → numeric ID mapping**
-- Module-level `Map<string, number>` keyed by `"${agentId}:${sessionKey}"`
-- IDs start at `OPENCLAW_ID_BASE = 100000` — partitioned away from Claude Code IDs (which start at 1) to prevent `restoreAgents()` collisions on `webviewReady`
-- Same key always maps to the same numeric ID within a VS Code session
+**1. ID allocation (D6)**
+- IDs start at `10000` (constant defined in `openclawWatcher.ts`; constants.ts not modified)
+- On each scan tick, counter is advanced past any existing openclaw agent IDs so VS Code restarts (where `restoreAgents` may already have populated `provider.agents`) never collide
+- If an `agentId + sessionKey` pair is already in `provider.agents`, the existing numeric ID is reused — no duplicate registration
 
-**2. Event translation (`OpenClawParserEvent` → webview wire protocol)**
+**2. Event translation (D7)**
 | Parser event | Webview message |
 |---|---|
 | `agentStatus { status: 'working' }` | `{ type: 'agentStatus', id, status: 'active' }` |
-| `agentStatus { status: 'idle' }` | `{ type: 'agentStatus', id, status: 'waiting' }` |
+| `agentStatus { status: 'idle' \| 'error' }` | `{ type: 'agentStatus', id, status: 'waiting' }` |
 | `agentToolStart { tool, input }` | `{ type: 'agentToolStart', id, toolId, status }` (status via `formatToolStatus`) |
 | `agentToolDone { tool }` | `{ type: 'agentToolDone', id, toolId }` |
 
 **3. Tool ID correlation**
-- `agentToolStart` generates a unique `toolId` string (`openclaw-<tool>-<n>`)
-- Per-agent FIFO queue maps `toolName → [toolId, ...]`
-- `agentToolDone` dequeues the oldest toolId for that tool name
+- `agentToolStart` generates a unique `toolId` string (`oclaw-<id>-<ts>-<rand5>`)
+- Per-agent `Map<toolName, toolId>` correlates start events to their matching done events
+- On idle, stale tool state is silently cleared from both the watcher map and `AgentState`
 
 **4. Agent state hygiene**
-- `agent.activeToolStatuses` and `agent.activeToolNames` are updated on every event (even before the webview is ready) so `sendCurrentAgentStatuses()` replays correct state on webview connect
-- `agent.isWaiting` set `true` on idle, `false` on working — matches existing claude-code convention
+- `agent.activeToolIds`, `activeToolStatuses`, `activeToolNames` kept in sync on every event so `sendCurrentAgentStatuses()` can re-hydrate the webview after panel reopen
+- `agent.isWaiting` mirrors `idle/error → true`, `working → false`
+- `terminalRef` never set — OpenClaw agents are terminal-free (D8)
 
-**5. Claude Code path unaffected**
-- `fileWatcher.ts`, `transcriptParser.ts`, and all claude-code logic are untouched
-- Watcher uses separate `OPENCLAW_ID_BASE` partition and distinct disposable chain
-
-**Known limitation (defer to M5)**
-- OpenClaw agents are not persisted to `workspaceState` (requires access to `provider.context` which is `private`). On VS Code restart, sessions are re-discovered by directory scan (per D6). Seat assignments will be lost. Fix in future milestone by adding a persistence callback to `startOpenClawWatcher` or making `provider.context` accessible.
+**5. No existing files modified (except extension.ts wiring)**
+- `fileWatcher.ts`, `transcriptParser.ts`, `agentManager.ts`, `constants.ts` — all untouched
+- Claude Code path completely unaffected; both watchers coexist cleanly
 
 ---
 
@@ -527,10 +720,10 @@ export async function listOpenClawAgents(): Promise<
 
 ---
 
-## Sprint 2 Preview (M4+)
+## Sprint 3 Complete (M4) / Sprint 4 Preview (M5)
 
-- M4: `openclawWatcher.ts` — watch `~/.openclaw/agents/*/sessions/*.jsonl`, bridge string `agentId` to numeric `AgentState.id`
-- M5: `PixelAgentsViewProvider.ts` — "Add OpenClaw" button wires `listOpenClawAgents` + `watchOpenClawAgent`
+- [x] **M4**: `openclawWatcher.ts` — directory scanner + webview bridge ✅ DONE (2026-03-24)
+- [ ] **M5**: `PixelAgentsViewProvider.ts` — "Add OpenClaw" button: wires `listOpenClawAgents` + `watchOpenClawAgent` into the VS Code UI; per D8 the button auto-discovers existing sessions rather than spawning a new process
 
 ---
 
