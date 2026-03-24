@@ -1,8 +1,71 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 3 (M4)
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 3 (M4 complete — awaiting QA review)
+
+---
+
+## Current State: ⏳ M4 COMPLETE — Awaiting QA Review
+
+---
+
+## Sprint 3 (M4) — pixel-coder, 2026-03-24 — commit c6dfe3e
+
+### Summary
+`src/openclawWatcher.ts` implemented — bridge layer between the M3 parser and the webview wire protocol.
+
+### Files changed
+| File | Change |
+|------|--------|
+| `src/openclawWatcher.ts` | **New** — full M4 bridge layer |
+| `src/constants.ts` | Added `OPENCLAW_ID_BASE = 100000` |
+| `src/extension.ts` | Added `startOpenClawWatcher(provider)` call + import |
+
+### Exported API
+```typescript
+export function startOpenClawWatcher(provider: PixelAgentsViewProvider): vscode.Disposable
+```
+
+### Integration point in extension.ts
+```typescript
+// After the two existing command registrations, before closing activate():
+context.subscriptions.push(startOpenClawWatcher(provider));
+```
+
+### Build
+`npm run build` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
+
+### Implementation notes
+
+**1. Stable string → numeric ID mapping**
+- Module-level `Map<string, number>` keyed by `"${agentId}:${sessionKey}"`
+- IDs start at `OPENCLAW_ID_BASE = 100000` — partitioned away from Claude Code IDs (which start at 1) to prevent `restoreAgents()` collisions on `webviewReady`
+- Same key always maps to the same numeric ID within a VS Code session
+
+**2. Event translation (`OpenClawParserEvent` → webview wire protocol)**
+| Parser event | Webview message |
+|---|---|
+| `agentStatus { status: 'working' }` | `{ type: 'agentStatus', id, status: 'active' }` |
+| `agentStatus { status: 'idle' }` | `{ type: 'agentStatus', id, status: 'waiting' }` |
+| `agentToolStart { tool, input }` | `{ type: 'agentToolStart', id, toolId, status }` (status via `formatToolStatus`) |
+| `agentToolDone { tool }` | `{ type: 'agentToolDone', id, toolId }` |
+
+**3. Tool ID correlation**
+- `agentToolStart` generates a unique `toolId` string (`openclaw-<tool>-<n>`)
+- Per-agent FIFO queue maps `toolName → [toolId, ...]`
+- `agentToolDone` dequeues the oldest toolId for that tool name
+
+**4. Agent state hygiene**
+- `agent.activeToolStatuses` and `agent.activeToolNames` are updated on every event (even before the webview is ready) so `sendCurrentAgentStatuses()` replays correct state on webview connect
+- `agent.isWaiting` set `true` on idle, `false` on working — matches existing claude-code convention
+
+**5. Claude Code path unaffected**
+- `fileWatcher.ts`, `transcriptParser.ts`, and all claude-code logic are untouched
+- Watcher uses separate `OPENCLAW_ID_BASE` partition and distinct disposable chain
+
+**Known limitation (defer to M5)**
+- OpenClaw agents are not persisted to `workspaceState` (requires access to `provider.context` which is `private`). On VS Code restart, sessions are re-discovered by directory scan (per D6). Seat assignments will be lost. Fix in future milestone by adding a persistence callback to `startOpenClawWatcher` or making `provider.context` accessible.
 
 ---
 
