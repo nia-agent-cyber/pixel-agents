@@ -1,12 +1,30 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 4 (M5 COMPLETE — awaiting QA)
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 4 (M5 COMPLETE — QA APPROVED)
 
 ---
 
-## Current State: ✅ M5 COMPLETE — Build clean — Ready for QA
+## Current State: ✅ M5 FULLY COMPLETE — Extension end-to-end functional — Ready for devops (niavoice.com/office deployment)
+
+---
+
+## QA Review — commit f768ec7 (pixel-qa, 2026-03-24)
+
+### Verdict: ✅ APPROVED
+
+**Fix 2 (ID counter guard) confirmed correct. All checklist items pass. Build clean.**
+
+| Check | Result |
+|-------|--------|
+| `OPENCLAW_AGENT_ID_START = 10000` in `constants.ts`, exported | ✅ PASS |
+| `agentManager.ts` imports `OPENCLAW_AGENT_ID_START` from `./constants` | ✅ PASS |
+| Guard reads `(p.id \|\| 0) < OPENCLAW_AGENT_ID_START` (not `< 100000`) | ✅ PASS |
+| `openclawWatcher.ts` imports from `./constants`, no local duplicate | ✅ PASS |
+| `npm run compile` clean (tsc + eslint + esbuild + vite, zero errors) | ✅ PASS |
+
+**M5 is fully complete. The extension is end-to-end functional. Ready for devops deployment.**
 
 ---
 
@@ -794,12 +812,13 @@ export async function listOpenClawAgents(): Promise<
 ## Sprint 3 Complete (M4) / Sprint 4 Complete (M5)
 
 - [x] **M4**: `openclawWatcher.ts` — directory scanner + webview bridge ✅ DONE (2026-03-24)
-- [x] **M5**: Persistence guards + extension wiring ✅ DONE (2026-03-24)
+- [x] **M5**: Persistence guards + extension wiring ✅ DONE + QA APPROVED (2026-03-24)
   - Fix 1: `restoreAgents` source-gates `startFileWatching` to `claude-code` only
-  - Fix 2: `maxId` scan excludes OpenClaw IDs (< 100000) — no counter collision
+  - Fix 2: `maxId` scan excludes OpenClaw IDs via `OPENCLAW_AGENT_ID_START` constant (10000) — no counter collision
   - Fix 3: `context.subscriptions.push({ dispose: stopOpenClawWatcher })` — proper VS Code lifecycle cleanup
   - Fix 4: `activeToolIds` already maintained in M4 Rev2 (confirmed, no change needed)
   - Build: `npm run compile` ✅ clean — OpenClaw agents fully live end-to-end
+  - **Extension is end-to-end functional. Ready for devops (niavoice.com/office deployment).**
 
 ---
 
