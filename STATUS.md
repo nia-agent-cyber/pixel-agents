@@ -1,8 +1,220 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 2 (M3) — ✅ COMPLETE
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 2 (M3) — ⚠️ REQUEST CHANGES
+
+---
+
+## Current State: ⚠️ M3 REQUEST CHANGES — 2 Required Fixes Before M4
+
+---
+
+## QA Review — commit cac5c36 (pixel-qa, 2026-03-24)
+
+### Verdict: ⚠️ REQUEST CHANGES
+
+**2 required fixes (one architectural, one naming). 2 minor notes. Build passes clean.**
+
+---
+
+### ✅ PASS — Build Integrity
+`npm run build` completes clean on commit `cac5c36`: `tsc --noEmit` → `eslint src` → `esbuild` → `vite build`.  
+Zero type errors, zero lint errors, zero build warnings.
+
+---
+
+### ✅ PASS — JSONL Parsing Correctness
+`openclawTranscriptParser.ts` correctly handles all three OpenClaw message shapes:
+
+- **`role: 'assistant'` with `content: [{type:'tool_use', name, input, id}]`** — tool_use blocks are iterated, each block emits `agentToolStart`, `toolCallId` → `mappedName` is stored in `pendingTools`. ✅
+- **`role: 'toolResult'` with `toolCallId, content`** — `pendingTools.get(toolCallId)` retrieves the mapped name, entry is deleted, `agentToolDone` is deferred by `TOOL_DONE_DELAY_MS`. Content extraction handles both `Array<{type:'text', text}>` and plain string. ✅
+- **`type !== 'message'`** — silently skipped. ✅
+- **Malformed JSON** — `JSON.parse` wrapped in try/catch, bad lines skipped. ✅
+- **`ENOENT`** — `statSync` throws, caught in `readNewLinesForSession`'s outer try/catch, error logged. ✅
+- **`missing OPENCLAW_AGENT_DIR`** — `listOpenClawAgents` catches `readdirSync` failure and returns `[]`. `watchOpenClawAgent` lets `fs.watch`/`fs.watchFile` fail (logged), falls back to interval poll; when the file eventually appears, `statSync` will succeed. ✅
+
+---
+
+### ✅ PASS — Idle Detection Logic
+The 500ms silence timer is sound for single-threaded JavaScript:
+
+- `clearIdleTimer` is called before rescheduling — no double-timers. ✅
+- `scheduleIdleTimer` only emits `idle` if `pendingTools.size === 0` — prevents false idle during multi-tool turns. ✅
+- `OPENCLAW_IDLE_DELAY_MS (500ms) > TOOL_DONE_DELAY_MS (300ms)` — the `agentToolDone` deferred emit always fires before the idle status is emitted. ✅
+- No race conditions within the single JS event loop. ✅
+
+---
+
+### ✅ PASS — Pending Tool Tracking
+`toolCallId` → tool name correlation is correct:
+- Stored at tool_use time: `state.pendingTools.set(toolCallId, mappedName)`. ✅
+- Retrieved at toolResult time: `toolCallId ? pendingTools.get(toolCallId) ?? '' : ''`. ✅
+- If `toolResult` arrives with no matching `toolCallId` (orphan result): `toolName` is `''`, emit still fires, entry not double-deleted. Safe. ✅
+- If `toolCallId` is undefined: the ternary short-circuits to `''`, no `.get(undefined)` call. ✅
+
+---
+
+### ✅ PASS — `listOpenClawAgents()` Directory Traversal
+Correctly walks `<OPENCLAW_AGENT_DIR>/<agentId>/sessions/<sessionKey>.jsonl`:
+- `readdirSync(OPENCLAW_AGENT_DIR)` gives agent name dirs. ✅
+- `path.join(..., agentId, 'sessions')` is the correct path segment. ✅
+- Filters `file.endsWith('.jsonl')`, strips with `file.slice(0, -6)`. ✅
+- Returns `[]` if base dir missing. ✅
+
+---
+
+### ✅ PASS — `dispose()` Idempotency
+Fully idempotent and leak-free:
+- `clearIdleTimer` checks `state.idleTimer !== null` before clearing. ✅
+- `fsWatcher` null-checked before `.close()`, set to `null` after. ✅
+- `fs.unwatchFile` is safe to call with no active listener (no-op). ✅
+- `pollInterval` null-checked before `clearInterval`, set to `null` after. ✅
+- Second `dispose()` call: all guards pass, no double-free. ✅
+
+---
+
+### 🔴 REQUIRED FIX #1 — Tool Map Deviates from DECISIONS.md D7 AND Is Incomplete
+
+**This must be resolved before M4 begins.**
+
+#### What's implemented (`OPENCLAW_TOOL_MAP` in `openclawTranscriptParser.ts`):
+```typescript
+const OPENCLAW_TOOL_MAP: Record<string, string> = {
+  Read: 'read_file',
+  Write: 'write_file',
+  Edit: 'edit_file',
+  exec: 'run_command',
+  web_search: 'web_search',    // pass-through
+  web_fetch: 'web_fetch',      // pass-through
+  browser: 'browser_action',
+};
+```
+
+#### What DECISIONS.md D7 specifies:
+```typescript
+const OPENCLAW_TOOL_MAP: Record<string, string> = {
+  exec: 'Bash',
+  web_fetch: 'WebFetch',
+  web_search: 'WebSearch',
+  sessions_spawn: 'Task',
+  memory_search: 'Grep',
+  message: 'Write',
+  browser: 'WebFetch',   // ← note: also WebFetch in D7
+  image: 'Read',
+  tts: 'Write',
+};
+// Read, Write, Edit pass through unchanged (D7 says "pass through")
+```
+
+#### Problems:
+
+**A — Target names conflict with `formatToolStatus()`.**  
+D7 says the mapping exists "so the existing `formatToolStatus()` animation logic works."  
+`formatToolStatus()` recognises: `Read`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, `Task`, `Grep`, etc.  
+The implementation maps to `read_file`, `write_file`, `run_command`, `browser_action` — none of which `formatToolStatus()` recognises. They all fall through to `` `Using ${toolName}` ``, defeating the purpose of the mapping entirely.
+
+If M4's `openclawWatcher.ts` calls `formatToolStatus(mappedName, parsedInput)` (the natural assumption given D7), tool display will silently show `"Using read_file"`, `"Using run_command"`, etc., instead of the intended `"Reading foo.ts"`, `"Running: npm build"`, etc.
+
+**B — 5 entries from D7 are missing:** `sessions_spawn`, `memory_search`, `message`, `image`, `tts`.  
+These are real OpenClaw tools in active use. Missing entries will appear as their raw names in the UI.
+
+**C — Conflict between STATUS.md M3 deliverable table and DECISIONS.md D7.**  
+The STATUS.md table reflects the implementation (not D7). Either D7 must be updated (formally superseding the decision) or the implementation must be corrected. The current state is ambiguous — M4 author cannot know which spec to trust.
+
+#### Required action (choose one):
+- **Option A (preferred):** Align implementation with D7. Update `OPENCLAW_TOOL_MAP` to use Claude Code display names + add missing 5 entries. Update STATUS.md table. Do NOT update DECISIONS.md (D7 was always correct).
+- **Option B:** Update DECISIONS.md D7 to formally supersede the Claude Code name requirement, document that M4 will do its own `formatToolStatus`-equivalent with the new names, add the 5 missing entries to the map in the new naming convention, and update STATUS.md table.
+
+Either way, the map must be complete (all 9+ known OpenClaw tools) and consistent with whatever display logic M4 will use.
+
+---
+
+### 🔴 REQUIRED FIX #2 — `WebviewMessage` Name Is Misleading (Will Block M4 Integration)
+
+**This is a naming/documentation fix, but it must be done before M4 to prevent integration errors.**
+
+The exported type is named `WebviewMessage`:
+```typescript
+export type WebviewMessage =
+  | { type: 'agentToolStart'; agentId: string; tool: string; input: string }
+  | { type: 'agentToolDone';  agentId: string; tool: string; result: string }
+  | { type: 'agentStatus';    agentId: string; status: 'working' | 'idle' | 'error' };
+```
+
+The actual webview message protocol (as consumed by `useExtensionMessages.ts`) is:
+```typescript
+// agentToolStart: { type: 'agentToolStart', id: number, toolId: string, status: string }
+// agentToolDone:  { type: 'agentToolDone',  id: number, toolId: string }
+// agentStatus:    { type: 'agentStatus',     id: number, status: 'active' | 'waiting' }
+```
+
+Three mismatches:
+1. **`agentId: string` vs `id: number`** — webview indexes by numeric `id`, not string `agentId`
+2. **Field names**: `tool`/`input`/`result` vs `toolId`/`status` (webview has no `input` or `result` fields)
+3. **Status values**: `'working'/'idle'/'error'` vs `'active'/'waiting'` — different string literals, webview checks `status === 'active'` and `status === 'waiting'` explicitly
+
+The intent (confirmed by STATUS.md "What's next") is that M4 `openclawWatcher.ts` translates this intermediate event into the real webview protocol. **That design is fine.** But:
+- Calling it `WebviewMessage` implies it IS the webview protocol — it isn't
+- An M4 author could plumb `emit(msg: WebviewMessage)` directly into `webview.postMessage()` and break silently (TypeScript wouldn't catch it because `postMessage` accepts `any`)
+- The status enum values need explicit documentation so M4 knows to translate `'working'` → `'active'`, `'idle'` → `'waiting'`
+
+#### Required action:
+Rename `WebviewMessage` → `OpenClawParserEvent` (or similar) and add a JSDoc comment explicitly stating:
+> "This is NOT the webview message shape. M4's openclawWatcher must translate: `agentId: string` → `id: number`, `tool`/`input`/`result` fields → `toolId`/`status` fields, and status values `'working'`→`'active'`, `'idle'`→`'waiting'`."
+
+---
+
+### 📝 MINOR NOTE 1 — `listOpenClawAgents` doesn't filter to directories
+
+`readdirSync(OPENCLAW_AGENT_DIR)` returns all entries (files + dirs). Non-directory entries (e.g. a config file in the agents dir) will trigger a harmless `try/catch` failure on `readdirSync(agentId + '/sessions')`. Functionally safe, but wasteful and produces misleading log noise.
+
+**Recommendation (not blocking):** Use `{ withFileTypes: true }` and filter:
+```typescript
+agentDirs = fs.readdirSync(OPENCLAW_AGENT_DIR, { withFileTypes: true })
+  .filter(d => d.isDirectory())
+  .map(d => d.name);
+```
+
+---
+
+### 📝 MINOR NOTE 2 — `user` role → immediate `idle` before deferred `agentToolDone`
+
+When `role === 'user'` is parsed (new turn starting), the handler emits `agentStatus: idle` synchronously. But if any `setTimeout(TOOL_DONE_DELAY_MS)` callbacks are still pending from the previous turn's `toolResult` lines, those `agentToolDone` events will fire 300ms later — **after** the `idle` status. This creates an ordering glitch in the event stream:
+
+```
+agentStatus: idle  ← emitted now
+agentToolDone      ← fires 300ms later (from previous turn)
+```
+
+In the current design (M4 translates before hitting the webview), this is unlikely to cause visible issues. But if M4 passes events directly to the webview, the webview may briefly show a stale tool indicator re-appear after the agent goes idle.
+
+**Recommendation (not blocking this sprint):** Clear any pending deferred tool-done timers when a `user` turn starts. Requires tracking setTimeout handles (small refactor). Defer to M4/M5 cleanup if not needed before then.
+
+---
+
+### Summary Table
+
+| Check | Result |
+|-------|--------|
+| Build integrity (`npm run build`) | ✅ PASS |
+| JSONL parsing correctness (all message types) | ✅ PASS |
+| Idle detection / race conditions | ✅ PASS |
+| Pending tool tracking / toolCallId correlation | ✅ PASS |
+| `listOpenClawAgents()` directory traversal | ✅ PASS |
+| `dispose()` idempotency and leak safety | ✅ PASS |
+| Tool name mapping — completeness vs DECISIONS.md D7 | 🔴 FAIL (5 missing entries, names conflict with `formatToolStatus`) |
+| `WebviewMessage` shape vs actual webview protocol | 🔴 FAIL (misleading name, mismatched fields, mismatched status values) |
+| `listOpenClawAgents` directory filtering | 📝 MINOR (no `isDirectory` check — safe but wasteful) |
+| `user` turn → deferred toolDone ordering | 📝 MINOR (idle emitted before deferred toolDone — acceptable for now) |
+
+---
+
+### Required Actions (pixel-coder)
+1. **Fix `OPENCLAW_TOOL_MAP`** — choose Option A or Option B from Required Fix #1 above. Add the 5 missing tool mappings. Update DECISIONS.md D7 if choosing Option B.
+2. **Rename `WebviewMessage`** → `OpenClawParserEvent` (or similar), add JSDoc translation note for M4 author.
+
+Once these two fixes land: re-submit for QA re-review.
 
 ---
 
