@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { persistAgents } from './agentManager.js';
-import { OPENCLAW_AGENT_DIR } from './constants.js';
+import { OPENCLAW_AGENT_DIR, OPENCLAW_AGENT_ID_START } from './constants.js';
 import type { OpenClawParserEvent } from './openclawTranscriptParser.js';
 import { listOpenClawAgents, watchOpenClawAgent } from './openclawTranscriptParser.js';
 import { formatToolStatus } from './transcriptParser.js';
@@ -33,12 +33,6 @@ import type { AgentState } from './types.js';
  * Would normally live in constants.ts but M4 cannot modify existing files.
  */
 const OPENCLAW_SCAN_INTERVAL_MS = 5000;
-
-/**
- * Numeric IDs for OpenClaw agents start here to avoid collision with Claude
- * Code agent IDs, which are allocated sequentially from 1.
- */
-const OPENCLAW_AGENT_ID_START = 10000;
 
 // ── Minimal host interface ────────────────────────────────────────────────────
 

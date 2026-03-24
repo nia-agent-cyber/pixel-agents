@@ -43,3 +43,8 @@ export const OPENCLAW_IDLE_DELAY_MS = 500;
  * persisted Claude Code agents on webview ready.
  */
 export const OPENCLAW_ID_BASE = 100000;
+/**
+ * Numeric ID floor for OpenClaw agents used by both openclawWatcher (allocation)
+ * and agentManager (restoreAgents guard). Single source of truth.
+ */
+export const OPENCLAW_AGENT_ID_START = 10000;

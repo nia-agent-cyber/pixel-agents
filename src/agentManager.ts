@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 
 import {
   JSONL_POLL_INTERVAL_MS,
+  OPENCLAW_AGENT_ID_START,
   TERMINAL_NAME_PREFIX,
   WORKSPACE_KEY_AGENT_SEATS,
   WORKSPACE_KEY_AGENTS,
@@ -296,9 +297,9 @@ export function restoreAgents(
     agents.set(p.id, agent);
     knownJsonlFiles.add(p.jsonlFile);
 
-    // Fix 2 (M5): Exclude OpenClaw IDs (≥ 100000) from the Claude Code counter.
+    // Fix 2 (M5): Exclude OpenClaw IDs (≥ OPENCLAW_AGENT_ID_START) from the Claude Code counter.
     // OpenClaw IDs must not advance nextAgentIdRef into the OpenClaw range.
-    if ((p.id || 0) < 100000 && p.id > maxId) maxId = p.id;
+    if ((p.id || 0) < OPENCLAW_AGENT_ID_START && p.id > maxId) maxId = p.id;
     restoredProjectDir = p.projectDir;
 
     // Fix 1 (M5): Only start the Claude Code file watcher for claude-code agents.
