@@ -1,8 +1,8 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 2 (M3)
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 2 (M3) — ✅ COMPLETE
 
 ---
 
@@ -117,6 +117,9 @@ Functionally correct (openclaw agents have `undefined` terminalRef, never matche
 - [x] **M2**: `source` discriminator on `AgentState` and `PersistedAgent`
 - [x] **M2**: `terminalRef` optional on `AgentState`; `terminalName` optional on `PersistedAgent`
 - [x] **M2**: All 5 terminal access sites source-gated (agentManager×2, PixelAgentsViewProvider×4, fileWatcher×1)
+- [x] **M3**: `src/openclawTranscriptParser.ts` — OpenClaw JSONL parser (2026-03-24)
+- [x] **M3**: `OPENCLAW_IDLE_DELAY_MS` constant added to `src/constants.ts`
+- [x] **M3**: `npm run build` passes clean — zero type errors, zero lint warnings
 
 ---
 
@@ -143,11 +146,61 @@ Functionally correct (openclaw agents have `undefined` terminalRef, never matche
 
 ---
 
-## Sprint 2 Preview (after Sprint 1 ships)
+## Sprint 2 (M3) — ✅ COMPLETE (pixel-coder, 2026-03-24)
 
-- M3: `openclawTranscriptParser.ts` — parse pi-coding-agent JSONL format
-- M4: `openclawWatcher.ts` — watch `~/.openclaw/agents/*/sessions/*.jsonl`
-- M5: Tool name mapping (exec→Bash, web_fetch→WebFetch, etc.)
+### M3: `openclawTranscriptParser.ts`
+
+**Status:** ✅ DONE — `npm run build` passes clean (tsc + eslint + esbuild + vite).
+
+**Deliverables:**
+- `src/openclawTranscriptParser.ts` — new pure file, zero changes to any upstream file
+- `src/constants.ts` — added `OPENCLAW_IDLE_DELAY_MS = 500` (silence threshold for turn-end detection)
+
+**Exported API surface:**
+```typescript
+export type WebviewMessage =
+  | { type: 'agentToolStart'; agentId: string; tool: string; input: string }
+  | { type: 'agentToolDone';  agentId: string; tool: string; result: string }
+  | { type: 'agentStatus';    agentId: string; status: 'working' | 'idle' | 'error' };
+
+export function watchOpenClawAgent(
+  agentId: string,
+  sessionKey: string,
+  emit: (msg: WebviewMessage) => void,
+): vscode.Disposable;
+
+export async function listOpenClawAgents(): Promise<
+  { agentId: string; sessionKey: string }[]
+>;
+```
+
+**Tool name map (DECISIONS.md D7 as specified):**
+| OpenClaw raw | Displayed as |
+|---|---|
+| `Read` | `read_file` |
+| `Write` | `write_file` |
+| `Edit` | `edit_file` |
+| `exec` | `run_command` |
+| `web_search` | `web_search` |
+| `web_fetch` | `web_fetch` |
+| `browser` | `browser_action` |
+| *(any other)* | raw tool name |
+
+**Edge cases noted:**
+1. **File doesn't exist yet** — `readNewLinesForSession` swallows `ENOENT`; watcher will catch up when file appears (same as Claude Code polling pattern in `launchNewTerminal`).
+2. **Tool result with no `toolCallId`** — safe: `pendingTools.get(undefined)` returns `undefined`, tool name is `''`, result still emitted.
+3. **Idle timer with pending tools** — `scheduleIdleTimer` only emits `idle` if `pendingTools.size === 0`; prevents false idle during slow tool execution.
+4. **`listOpenClawAgents` on missing directory** — returns `[]` (not an error); safe for fresh installs.
+5. **`dispose()` called multiple times** — idempotent: null-checks on `fsWatcher` and `pollInterval` prevent double-close errors.
+
+**What's next:** M4 — `openclawWatcher.ts` (directory scanner + bridge to numeric agent IDs for the existing webview protocol).
+
+---
+
+## Sprint 2 Preview (M4+)
+
+- M4: `openclawWatcher.ts` — watch `~/.openclaw/agents/*/sessions/*.jsonl`, bridge string `agentId` to numeric `AgentState.id`
+- M5: `PixelAgentsViewProvider.ts` — "Add OpenClaw" button wires `listOpenClawAgents` + `watchOpenClawAgent`
 
 ---
 

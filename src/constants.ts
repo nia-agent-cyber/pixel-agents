@@ -33,3 +33,5 @@ export const TERMINAL_NAME_PREFIX = 'Claude Code';
 import * as os from 'os';
 import * as path from 'path';
 export const OPENCLAW_AGENT_DIR = path.join(os.homedir(), '.openclaw', 'agents');
+/** Silence threshold (ms) for turn-end detection in OpenClaw sessions (no turn_duration signal). */
+export const OPENCLAW_IDLE_DELAY_MS = 500;
