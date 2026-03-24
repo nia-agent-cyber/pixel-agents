@@ -10,6 +10,24 @@
 
 ---
 
+## M4 Rev2 — pixel-coder, 2026-03-24
+
+Re-implementation of `openclawWatcher.ts` to better match the task spec:
+
+| Change | Previous (c6dfe3e) | Rev2 |
+|--------|--------------------|------|
+| Agent ID start | `OPENCLAW_ID_BASE = 100000` | `10000` (spec says "starting at 10000") |
+| Function signature | `startOpenClawWatcher(provider): Disposable` | `startOpenClawWatcher(context, provider): void` |
+| Persistence | Not called — agents not persisted | Calls `persistAgents` (D6) |
+| `constants.ts` | Modified (added `OPENCLAW_ID_BASE`) | **Not modified** (spec constraint) |
+| Coupling | Imports `PixelAgentsViewProvider` | Structural `AgentHost` interface (D5) |
+| ID collision guard | None (relies on ID space) | Advances counter past existing openclaw IDs on each scan |
+
+**Build:** `npm run compile` ✅ clean (tsc + eslint + esbuild + vite, zero errors)
+
+
+---
+
 ## QA Review — commit c6dfe3e (pixel-qa, 2026-03-24)
 
 ### Verdict: ✅ APPROVED

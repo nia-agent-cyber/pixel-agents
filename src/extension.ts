@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { COMMAND_EXPORT_DEFAULT_LAYOUT, COMMAND_SHOW_PANEL, VIEW_ID } from './constants.js';
-import { startOpenClawWatcher } from './openclawWatcher.js';
+import { startOpenClawWatcher, stopOpenClawWatcher } from './openclawWatcher.js';
 import { PixelAgentsViewProvider } from './PixelAgentsViewProvider.js';
 
 let providerInstance: PixelAgentsViewProvider | undefined;
@@ -24,11 +24,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // OpenClaw watcher: scans ~/.openclaw/agents/ and bridges session events to the webview.
-  // Runs alongside the existing Claude Code fileWatcher (which is unaffected).
-  context.subscriptions.push(startOpenClawWatcher(provider));
+  // Start watching ~/.openclaw/agents/ for OpenClaw agent sessions (DECISIONS.md D8).
+  // Runs alongside the existing Claude Code fileWatcher — both are unaffected by each other.
+  startOpenClawWatcher(context, provider);
 }
 
 export function deactivate() {
+  stopOpenClawWatcher();
   providerInstance?.dispose();
 }

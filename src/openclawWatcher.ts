@@ -1,271 +1,321 @@
 /**
- * openclawWatcher.ts  — M4 bridge layer
+ * openclawWatcher.ts
  *
- * Scans `~/.openclaw/agents/` for session files, registers OpenClaw agents
- * into the shared `PixelAgentsViewProvider` state, and translates
- * `OpenClawParserEvent`s into the webview wire protocol.
+ * Directory scanner and webview bridge for OpenClaw agent sessions.
  *
- * Design notes
- * ─────────────
- * • OpenClaw agent IDs start at `OPENCLAW_ID_BASE` (100 000) so they never
- *   collide with Claude Code agent IDs (which start at 1 and grow slowly).
- * • `persistAgents` is not called here; persistence is deferred to a future
- *   milestone.  On every VS Code restart `startOpenClawWatcher` re-discovers
- *   all sessions from disk, matching DECISIONS.md D6.
- * • The existing Claude Code `fileWatcher.ts` path is completely unaffected.
+ * Periodically scans `~/.openclaw/agents/` for new agent/session combos,
+ * registers each session as an AgentState with `source: 'openclaw'`, and
+ * bridges OpenClawParserEvents into the webview wire protocol that the
+ * existing pixel-agents React UI understands.
  *
- * See DECISIONS.md D5, D6, D8.
+ * Design notes (see DECISIONS.md):
+ *  D5 — New file; fileWatcher.ts and transcriptParser.ts are untouched.
+ *  D6 — OpenClaw agents are persisted by agentId + sessionKey, not terminalName.
+ *  D7 — Tool names are already mapped by openclawTranscriptParser; we only need
+ *        to call formatToolStatus() here to produce the display string.
+ *  D8 — Auto-discovery on startup; no terminal is ever spawned for OpenClaw.
  */
 
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { OPENCLAW_AGENT_DIR, OPENCLAW_ID_BASE, PROJECT_SCAN_INTERVAL_MS } from './constants.js';
+import { persistAgents } from './agentManager.js';
+import { OPENCLAW_AGENT_DIR } from './constants.js';
 import type { OpenClawParserEvent } from './openclawTranscriptParser.js';
 import { listOpenClawAgents, watchOpenClawAgent } from './openclawTranscriptParser.js';
-import { PixelAgentsViewProvider } from './PixelAgentsViewProvider.js';
 import { formatToolStatus } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
-// ── Stable agentKey → numeric ID mapping ─────────────────────────────────────
-// Module-level map ensures the same agentId+sessionKey always maps to the same
-// numeric ID within a VS Code session, even across multiple rescans.
-const openclawIdMap = new Map<string, number>();
-let openclawIdCounter = OPENCLAW_ID_BASE;
+// ── Module-level constants ────────────────────────────────────────────────────
 
-function makeAgentKey(agentId: string, sessionKey: string): string {
-  return `${agentId}:${sessionKey}`;
+/**
+ * How often (ms) to scan ~/.openclaw/agents/ for new agent/session combos.
+ * Would normally live in constants.ts but M4 cannot modify existing files.
+ */
+const OPENCLAW_SCAN_INTERVAL_MS = 5000;
+
+/**
+ * Numeric IDs for OpenClaw agents start here to avoid collision with Claude
+ * Code agent IDs, which are allocated sequentially from 1.
+ */
+const OPENCLAW_AGENT_ID_START = 10000;
+
+// ── Minimal host interface ────────────────────────────────────────────────────
+
+/**
+ * Subset of PixelAgentsViewProvider that openclawWatcher needs.
+ * Structural typing keeps the coupling minimal (D5).
+ */
+interface AgentHost {
+  /** Live map of all registered agents (numeric id → state). */
+  agents: Map<number, AgentState>;
+  /** The VS Code webview panel; undefined until the user opens the panel. */
+  webviewView: vscode.WebviewView | undefined;
 }
 
-function getOrAssignNumericId(key: string): number {
-  const existing = openclawIdMap.get(key);
-  if (existing !== undefined) return existing;
-  const id = openclawIdCounter++;
-  openclawIdMap.set(key, id);
-  return id;
-}
+// ── Module-level state ────────────────────────────────────────────────────────
 
-// ── Per-agent tool-ID queues ──────────────────────────────────────────────────
-// The webview wire protocol requires a unique `toolId` string per active tool
-// invocation.  `OpenClawParserEvent` only carries a tool name, not a unique ID.
-// We generate stable toolIds per start event and queue them per tool name so
-// the corresponding done event can dequeue the oldest outstanding invocation.
-//
-//   toolIdQueues: numeric agentId → (toolName → FIFO queue of generated toolIds)
+/** Counter for assigning numeric IDs to newly discovered OpenClaw sessions. */
+let nextOpenClawId = OPENCLAW_AGENT_ID_START;
 
-const toolIdQueues = new Map<number, Map<string, string[]>>();
-let toolIdCounter = 0;
+/** Periodic directory-scan timer. */
+let scanInterval: ReturnType<typeof setInterval> | null = null;
 
-function nextToolId(toolName: string): string {
-  return `openclaw-${toolName}-${++toolIdCounter}`;
-}
+/**
+ * Active JSONL-watcher disposables, keyed by `"${agentId}/${sessionKey}"`.
+ * A key present here means we are already watching that session.
+ */
+const activeWatchers = new Map<string, vscode.Disposable>();
 
-function enqueueToolId(numericId: number, toolName: string, toolId: string): void {
-  let agentQueues = toolIdQueues.get(numericId);
-  if (!agentQueues) {
-    agentQueues = new Map<string, string[]>();
-    toolIdQueues.set(numericId, agentQueues);
-  }
-  const arr = agentQueues.get(toolName) ?? [];
-  arr.push(toolId);
-  agentQueues.set(toolName, arr);
-}
-
-function dequeueToolId(numericId: number, toolName: string): string | undefined {
-  const agentQueues = toolIdQueues.get(numericId);
-  if (!agentQueues) return undefined;
-  const arr = agentQueues.get(toolName);
-  if (!arr || arr.length === 0) return undefined;
-  return arr.shift();
-}
-
-function clearToolQueues(numericId: number): void {
-  toolIdQueues.delete(numericId);
-}
-
-// ── AgentState builder ────────────────────────────────────────────────────────
-
-function buildOpenClawAgent(numericId: number, agentId: string, sessionKey: string): AgentState {
-  const jsonlFile = path.join(OPENCLAW_AGENT_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
-  return {
-    id: numericId,
-    source: 'openclaw',
-    agentId,
-    sessionKey,
-    projectDir: path.join(OPENCLAW_AGENT_DIR, agentId),
-    jsonlFile,
-    fileOffset: 0,
-    lineBuffer: '',
-    activeToolIds: new Set(),
-    activeToolStatuses: new Map(),
-    activeToolNames: new Map(),
-    activeSubagentToolIds: new Map(),
-    activeSubagentToolNames: new Map(),
-    isWaiting: false,
-    permissionSent: false,
-    hadToolsInTurn: false,
-  };
-}
-
-// ── Event bridge ──────────────────────────────────────────────────────────────
-//
-// Translates an `OpenClawParserEvent` (M3 output) → webview wire protocol (M4).
-//
-//   Parser field / value   →   Webview protocol field / value
-//   ─────────────────────────────────────────────────────────
-//   agentId  (string)      →   id  (number)           via stable openclawIdMap
-//   status: 'working'      →   status: 'active'
-//   status: 'idle'         →   status: 'waiting'
-//   agentToolStart         →   { type:'agentToolStart', id, toolId, status }
-//   agentToolDone          →   { type:'agentToolDone',  id, toolId }
-//
-// Agent state (`activeToolStatuses`, `isWaiting`) is updated even when the
-// webview is not yet ready, so `sendCurrentAgentStatuses` will reflect the
-// correct live state when the webview eventually connects.
-
-function handleParserEvent(
-  event: OpenClawParserEvent,
-  numericId: number,
-  agent: AgentState,
-  webview: vscode.Webview | undefined,
-): void {
-  if (event.type === 'agentStatus') {
-    if (event.status === 'working') {
-      agent.isWaiting = false;
-      webview?.postMessage({ type: 'agentStatus', id: numericId, status: 'active' });
-    } else if (event.status === 'idle') {
-      agent.isWaiting = true;
-      webview?.postMessage({ type: 'agentStatus', id: numericId, status: 'waiting' });
-    }
-    // 'error' has no direct webview equivalent — silently ignored for now
-    return;
-  }
-
-  if (event.type === 'agentToolStart') {
-    // Parse the JSON-serialised input back to a plain object for formatToolStatus
-    let parsedInput: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = JSON.parse(event.input);
-      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        parsedInput = parsed as Record<string, unknown>;
-      }
-    } catch {
-      /* keep empty object on parse failure */
-    }
-
-    const status = formatToolStatus(event.tool, parsedInput);
-    const toolId = nextToolId(event.tool);
-
-    // Update agent state (used by sendCurrentAgentStatuses for replay on reconnect)
-    agent.activeToolStatuses.set(toolId, status);
-    agent.activeToolNames.set(toolId, event.tool);
-    enqueueToolId(numericId, event.tool, toolId);
-
-    webview?.postMessage({ type: 'agentToolStart', id: numericId, toolId, status });
-    return;
-  }
-
-  if (event.type === 'agentToolDone') {
-    // Dequeue the oldest outstanding toolId for this tool name
-    const toolId = dequeueToolId(numericId, event.tool);
-    if (!toolId) {
-      // No outstanding invocation — orphan done event, safe to ignore
-      return;
-    }
-
-    agent.activeToolStatuses.delete(toolId);
-    agent.activeToolNames.delete(toolId);
-
-    webview?.postMessage({ type: 'agentToolDone', id: numericId, toolId });
-  }
-}
+/**
+ * Per-agent tool-name → toolId tracking map.
+ *
+ * The OpenClaw parser emits agentToolStart / agentToolDone events keyed by
+ * display tool name (not by toolCallId), so we correlate them here.
+ * If two invocations of the same tool overlap (rare), the last started wins.
+ *
+ * Outer key: numeric agent id.
+ * Inner key: display tool name (e.g. 'Bash', 'Read').
+ * Value:     the generated toolId string sent to the webview.
+ */
+const toolIdByAgent = new Map<number, Map<string, string>>();
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Start watching all OpenClaw agent sessions under `OPENCLAW_AGENT_DIR`.
+ * Start the OpenClaw directory watcher.
  *
- * Behaviour
- * ─────────
- * - Performs an initial async scan immediately on call.
- * - Rescans every `PROJECT_SCAN_INTERVAL_MS` to discover new sessions.
- * - For each discovered `{ agentId, sessionKey }` pair:
- *     1. Assigns a stable numeric ID (≥ `OPENCLAW_ID_BASE`) via `openclawIdMap`.
- *     2. Creates an `AgentState` with `source: 'openclaw'` and registers it
- *        in `provider.agents`.
- *     3. Posts `{ type: 'agentCreated', id }` to the webview (if ready).
- *     4. Starts a `watchOpenClawAgent` watcher that bridges parser events to
- *        the webview wire protocol via `handleParserEvent`.
- * - Returns a `vscode.Disposable`; calling `dispose()` stops all watching and
- *   cleans up resources.  The existing Claude Code watcher is unaffected.
+ * Performs an immediate scan of `~/.openclaw/agents/`, then repeats every
+ * {@link OPENCLAW_SCAN_INTERVAL_MS} ms.  For each newly discovered session the
+ * watcher:
  *
- * ID partitioning
- * ───────────────
- * Claude Code agents use IDs 1, 2, 3 … (from `nextAgentId`).
- * OpenClaw agents use IDs 100 000, 100 001 … (from `openclawIdCounter`).
- * This prevents collisions when `restoreAgents()` replays persisted claude-code
- * agents into `provider.agents` on `webviewReady`.
+ *  1. Allocates a numeric agent ID ≥ {@link OPENCLAW_AGENT_ID_START}.
+ *  2. Creates an AgentState with `source: 'openclaw'` (no terminalRef).
+ *  3. Persists the agent via agentManager.persistAgents.
+ *  4. Starts a per-session JSONL watcher via watchOpenClawAgent.
+ *  5. Bridges OpenClawParserEvents → webview wire protocol in real time.
  *
- * @param provider The shared `PixelAgentsViewProvider` instance.
- * @returns        A `vscode.Disposable` that stops the watcher when disposed.
+ * If a session is already in `provider.agents` (restored from workspaceState
+ * by agentManager.restoreAgents), the existing numeric ID is reused and only
+ * the JSONL watcher is started — no duplicate agent is created.
+ *
+ * @param context  Extension context used for workspaceState persistence.
+ * @param provider The PixelAgentsViewProvider instance (satisfies AgentHost).
  */
-export function startOpenClawWatcher(provider: PixelAgentsViewProvider): vscode.Disposable {
-  const sessionDisposables = new Map<string, vscode.Disposable>();
-  let disposed = false;
+export function startOpenClawWatcher(context: vscode.ExtensionContext, provider: AgentHost): void {
+  void scanAndRegister(context, provider);
 
-  function registerSession(agentId: string, sessionKey: string): void {
-    const key = makeAgentKey(agentId, sessionKey);
-    if (sessionDisposables.has(key)) return; // already watching
+  scanInterval = setInterval(() => {
+    void scanAndRegister(context, provider);
+  }, OPENCLAW_SCAN_INTERVAL_MS);
+}
 
-    const numericId = getOrAssignNumericId(key);
-    const agent = buildOpenClawAgent(numericId, agentId, sessionKey);
-    provider.agents.set(numericId, agent);
-
-    // Post agentCreated only if the webview is already connected.
-    // If not yet ready, sendExistingAgents() will broadcast it later.
-    provider.webviewView?.webview.postMessage({ type: 'agentCreated', id: numericId });
-
-    const disposable = watchOpenClawAgent(agentId, sessionKey, (event: OpenClawParserEvent) => {
-      handleParserEvent(event, numericId, agent, provider.webviewView?.webview);
-    });
-    sessionDisposables.set(key, disposable);
-
-    console.log(
-      `[Pixel Agents/OpenClaw] Registered ${agentId}/${sessionKey} → numeric id ${numericId}`,
-    );
+/**
+ * Stop all OpenClaw watchers and free all resources.
+ *
+ * Disposes every active JSONL file watcher, stops the periodic scan timer,
+ * and resets per-session tracking.  Safe to call multiple times.
+ */
+export function stopOpenClawWatcher(): void {
+  if (scanInterval !== null) {
+    clearInterval(scanInterval);
+    scanInterval = null;
   }
 
-  function scan(): void {
-    void listOpenClawAgents().then((sessions) => {
-      if (disposed) return;
-      for (const { agentId, sessionKey } of sessions) {
-        registerSession(agentId, sessionKey);
+  for (const disposable of activeWatchers.values()) {
+    disposable.dispose();
+  }
+  activeWatchers.clear();
+  toolIdByAgent.clear();
+}
+
+// ── Directory scanner ─────────────────────────────────────────────────────────
+
+async function scanAndRegister(
+  context: vscode.ExtensionContext,
+  provider: AgentHost,
+): Promise<void> {
+  let sessions: { agentId: string; sessionKey: string }[];
+  try {
+    sessions = await listOpenClawAgents();
+  } catch (e) {
+    console.log(`[Pixel Agents/OpenClaw] Directory scan error: ${e}`);
+    return;
+  }
+
+  // Advance ID counter past any OpenClaw agents already registered (e.g. restored
+  // by agentManager.restoreAgents before this scan tick fires).
+  for (const [id, agent] of provider.agents) {
+    if (agent.source === 'openclaw' && id >= nextOpenClawId) {
+      nextOpenClawId = id + 1;
+    }
+  }
+
+  for (const { agentId, sessionKey } of sessions) {
+    const watchKey = `${agentId}/${sessionKey}`;
+
+    // Skip sessions we are already watching
+    if (activeWatchers.has(watchKey)) continue;
+
+    // Re-use an existing numeric ID when the agent was already registered
+    // (e.g. by agentManager.restoreAgents on VS Code restart — D6).
+    let numericId: number | null = null;
+    for (const [id, agent] of provider.agents) {
+      if (
+        agent.source === 'openclaw' &&
+        agent.agentId === agentId &&
+        agent.sessionKey === sessionKey
+      ) {
+        numericId = id;
+        break;
       }
+    }
+
+    if (numericId === null) {
+      // Brand-new session — allocate a numeric ID and create the AgentState.
+      numericId = nextOpenClawId++;
+      const jsonlFile = path.join(OPENCLAW_AGENT_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
+
+      const agentState: AgentState = {
+        id: numericId,
+        source: 'openclaw',
+        agentId,
+        sessionKey,
+        // OpenClaw agents have no terminal (D8); terminalRef intentionally absent.
+        projectDir: OPENCLAW_AGENT_DIR,
+        jsonlFile,
+        fileOffset: 0,
+        lineBuffer: '',
+        activeToolIds: new Set(),
+        activeToolStatuses: new Map(),
+        activeToolNames: new Map(),
+        activeSubagentToolIds: new Map(),
+        activeSubagentToolNames: new Map(),
+        isWaiting: false,
+        permissionSent: false,
+        hadToolsInTurn: false,
+      };
+
+      provider.agents.set(numericId, agentState);
+      persistAgents(provider.agents, context);
+
+      // Notify webview — no-op when the panel is not yet open
+      provider.webviewView?.webview.postMessage({ type: 'agentCreated', id: numericId });
+      console.log(
+        `[Pixel Agents/OpenClaw] Registered agent ${numericId}: ${agentId}/${sessionKey}`,
+      );
+    }
+
+    // Initialise per-agent tool-tracking map (idempotent)
+    if (!toolIdByAgent.has(numericId)) {
+      toolIdByAgent.set(numericId, new Map());
+    }
+
+    // Start the JSONL watcher; capture numericId in closure
+    const capturedId = numericId;
+    const disposable = watchOpenClawAgent(agentId, sessionKey, (event) => {
+      handleParserEvent(event, capturedId, provider);
     });
+
+    activeWatchers.set(watchKey, disposable);
+    console.log(`[Pixel Agents/OpenClaw] Watching ${watchKey} (numeric id=${capturedId})`);
   }
+}
 
-  // Kick off the first scan immediately
-  scan();
+// ── Event bridge: OpenClawParserEvent → webview wire protocol ─────────────────
 
-  // Periodic rescan — picks up new sessions created while VS Code is open
-  const scanTimer = setInterval(scan, PROJECT_SCAN_INTERVAL_MS);
+/**
+ * Translate a single OpenClawParserEvent into the webview wire protocol and
+ * post it to the webview.
+ *
+ * Translation table (see JSDoc on OpenClawParserEvent):
+ *
+ *   Parser field / value     →   Webview protocol field / value
+ *   ─────────────────────────────────────────────────────────────
+ *   agentId (string)         →   id (number)
+ *   status: 'working'        →   status: 'active'
+ *   status: 'idle'           →   status: 'waiting'
+ *   status: 'error'          →   status: 'waiting'
+ *   agentToolStart           →   agentToolStart { id, toolId, status }
+ *   agentToolDone            →   agentToolDone  { id, toolId }
+ */
+function handleParserEvent(
+  event: OpenClawParserEvent,
+  numericId: number,
+  provider: AgentHost,
+): void {
+  const webview = provider.webviewView?.webview;
+  const agent = provider.agents.get(numericId);
 
-  return {
-    dispose(): void {
-      disposed = true;
-      clearInterval(scanTimer);
+  switch (event.type) {
+    case 'agentStatus': {
+      // D7: map OpenClaw status values to the two values the webview knows
+      const status = event.status === 'working' ? 'active' : 'waiting';
 
-      for (const [key, disposable] of sessionDisposables) {
-        disposable.dispose();
-        // Clean up module-level tool queues for this session
-        const numericId = openclawIdMap.get(key);
-        if (numericId !== undefined) {
-          clearToolQueues(numericId);
+      if (agent) {
+        agent.isWaiting = status === 'waiting';
+
+        if (status === 'waiting') {
+          // Silently clear any stale tool state so sendCurrentAgentStatuses
+          // does not re-send tools that are no longer active.
+          agent.activeToolIds.clear();
+          agent.activeToolStatuses.clear();
+          agent.activeToolNames.clear();
+          toolIdByAgent.get(numericId)?.clear();
         }
       }
-      sessionDisposables.clear();
 
-      console.log('[Pixel Agents/OpenClaw] Watcher disposed');
-    },
-  };
+      webview?.postMessage({ type: 'agentStatus', id: numericId, status });
+      break;
+    }
+
+    case 'agentToolStart': {
+      // Generate a stable, unique toolId for this invocation
+      const toolId = `oclaw-${numericId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      // The parser JSON-stringifies input; parse it back for formatToolStatus
+      let parsedInput: Record<string, unknown>;
+      try {
+        parsedInput = JSON.parse(event.input) as Record<string, unknown>;
+      } catch {
+        parsedInput = {};
+      }
+
+      // Reuse the same formatToolStatus animation logic as Claude Code path (D7)
+      const status = formatToolStatus(event.tool, parsedInput);
+
+      // Update AgentState so sendCurrentAgentStatuses can re-hydrate the webview
+      // after a panel close/reopen without losing in-progress tool indicators.
+      if (agent) {
+        agent.activeToolIds.add(toolId);
+        agent.activeToolStatuses.set(toolId, status);
+        agent.activeToolNames.set(toolId, event.tool);
+        agent.isWaiting = false;
+      }
+
+      // Store tool name → toolId so we can correlate the matching agentToolDone
+      toolIdByAgent.get(numericId)?.set(event.tool, toolId);
+
+      webview?.postMessage({ type: 'agentToolStart', id: numericId, toolId, status });
+      break;
+    }
+
+    case 'agentToolDone': {
+      const agentToolMap = toolIdByAgent.get(numericId);
+      const toolId = agentToolMap?.get(event.tool);
+
+      if (toolId !== undefined) {
+        agentToolMap?.delete(event.tool);
+
+        if (agent) {
+          agent.activeToolIds.delete(toolId);
+          agent.activeToolStatuses.delete(toolId);
+          agent.activeToolNames.delete(toolId);
+        }
+
+        webview?.postMessage({ type: 'agentToolDone', id: numericId, toolId });
+      }
+      break;
+    }
+  }
 }
