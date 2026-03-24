@@ -2,7 +2,14 @@ import type * as vscode from 'vscode';
 
 export interface AgentState {
   id: number;
-  terminalRef: vscode.Terminal;
+  /** Discriminates between Claude Code agents (terminal-based) and OpenClaw agents (JSONL-only). */
+  source: 'claude-code' | 'openclaw';
+  /** Present for claude-code source only; undefined for openclaw source. */
+  terminalRef?: vscode.Terminal;
+  /** OpenClaw agent identifier (e.g. 'bakkt-coder'). Present for openclaw source only. */
+  agentId?: string;
+  /** OpenClaw session key. Present for openclaw source only. */
+  sessionKey?: string;
   projectDir: string;
   jsonlFile: string;
   fileOffset: number;
@@ -21,7 +28,13 @@ export interface AgentState {
 
 export interface PersistedAgent {
   id: number;
-  terminalName: string;
+  source?: 'claude-code' | 'openclaw';
+  /** Claude Code: terminal name used to re-match on restore. Optional for openclaw source. */
+  terminalName?: string;
+  /** OpenClaw: agent identifier for re-discovery on restore. */
+  agentId?: string;
+  /** OpenClaw: session key for re-discovery on restore. */
+  sessionKey?: string;
   jsonlFile: string;
   projectDir: string;
   /** Workspace folder name (only set for multi-root workspaces) */

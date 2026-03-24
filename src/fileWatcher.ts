@@ -232,6 +232,7 @@ function adoptTerminalForFile(
   const id = nextAgentIdRef.current++;
   const agent: AgentState = {
     id,
+    source: 'claude-code',
     terminalRef: terminal,
     projectDir,
     jsonlFile,

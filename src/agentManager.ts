@@ -71,6 +71,7 @@ export async function launchNewTerminal(
   const folderName = isMultiRoot && cwd ? path.basename(cwd) : undefined;
   const agent: AgentState = {
     id,
+    source: 'claude-code',
     terminalRef: terminal,
     projectDir,
     jsonlFile: expectedFile,
@@ -185,13 +186,21 @@ export function persistAgents(
 ): void {
   const persisted: PersistedAgent[] = [];
   for (const agent of agents.values()) {
-    persisted.push({
+    const entry: PersistedAgent = {
       id: agent.id,
-      terminalName: agent.terminalRef.name,
+      source: agent.source,
       jsonlFile: agent.jsonlFile,
       projectDir: agent.projectDir,
       folderName: agent.folderName,
-    });
+    };
+    if (agent.source === 'claude-code' && agent.terminalRef) {
+      entry.terminalName = agent.terminalRef.name;
+    }
+    if (agent.source === 'openclaw') {
+      entry.agentId = agent.agentId;
+      entry.sessionKey = agent.sessionKey;
+    }
+    persisted.push(entry);
   }
   context.workspaceState.update(WORKSPACE_KEY_AGENTS, persisted);
 }
@@ -221,39 +230,73 @@ export function restoreAgents(
   let restoredProjectDir: string | null = null;
 
   for (const p of persisted) {
-    const terminal = liveTerminals.find((t) => t.name === p.terminalName);
-    if (!terminal) continue;
+    const agentSource = p.source ?? 'claude-code';
 
-    const agent: AgentState = {
-      id: p.id,
-      terminalRef: terminal,
-      projectDir: p.projectDir,
-      jsonlFile: p.jsonlFile,
-      fileOffset: 0,
-      lineBuffer: '',
-      activeToolIds: new Set(),
-      activeToolStatuses: new Map(),
-      activeToolNames: new Map(),
-      activeSubagentToolIds: new Map(),
-      activeSubagentToolNames: new Map(),
-      isWaiting: false,
-      permissionSent: false,
-      hadToolsInTurn: false,
-      folderName: p.folderName,
-    };
+    let agent: AgentState;
+
+    if (agentSource === 'claude-code') {
+      // claude-code agents require a live terminal to re-attach
+      const terminal = liveTerminals.find((t) => t.name === p.terminalName);
+      if (!terminal) continue;
+
+      agent = {
+        id: p.id,
+        source: 'claude-code',
+        terminalRef: terminal,
+        projectDir: p.projectDir,
+        jsonlFile: p.jsonlFile,
+        fileOffset: 0,
+        lineBuffer: '',
+        activeToolIds: new Set(),
+        activeToolStatuses: new Map(),
+        activeToolNames: new Map(),
+        activeSubagentToolIds: new Map(),
+        activeSubagentToolNames: new Map(),
+        isWaiting: false,
+        permissionSent: false,
+        hadToolsInTurn: false,
+        folderName: p.folderName,
+      };
+      console.log(
+        `[Pixel Agents] Restored claude-code agent ${p.id} → terminal "${p.terminalName}"`,
+      );
+
+      // Extract terminal index from name like "Claude Code #3"
+      if (p.terminalName) {
+        const match = p.terminalName.match(/#(\d+)$/);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          if (idx > maxIdx) maxIdx = idx;
+        }
+      }
+    } else {
+      // openclaw agents: restore directly from persisted data, no terminal needed
+      agent = {
+        id: p.id,
+        source: 'openclaw',
+        agentId: p.agentId,
+        sessionKey: p.sessionKey,
+        projectDir: p.projectDir,
+        jsonlFile: p.jsonlFile,
+        fileOffset: 0,
+        lineBuffer: '',
+        activeToolIds: new Set(),
+        activeToolStatuses: new Map(),
+        activeToolNames: new Map(),
+        activeSubagentToolIds: new Map(),
+        activeSubagentToolNames: new Map(),
+        isWaiting: false,
+        permissionSent: false,
+        hadToolsInTurn: false,
+        folderName: p.folderName,
+      };
+      console.log(`[Pixel Agents] Restored openclaw agent ${p.id} (${p.agentId ?? 'unknown'})`);
+    }
 
     agents.set(p.id, agent);
     knownJsonlFiles.add(p.jsonlFile);
-    console.log(`[Pixel Agents] Restored agent ${p.id} → terminal "${p.terminalName}"`);
 
     if (p.id > maxId) maxId = p.id;
-    // Extract terminal index from name like "Claude Code #3"
-    const match = p.terminalName.match(/#(\d+)$/);
-    if (match) {
-      const idx = parseInt(match[1], 10);
-      if (idx > maxIdx) maxIdx = idx;
-    }
-
     restoredProjectDir = p.projectDir;
 
     // Start file watching if JSONL exists, skipping to end of file
