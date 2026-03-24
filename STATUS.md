@@ -2,19 +2,27 @@
 
 **Last updated:** 2026-03-24  
 **Updated by:** pixel-qa  
-**Current sprint:** Sprint 1 (M1 + M2)
+**Current sprint:** Sprint 2 (M3)
 
 ---
 
-## Current State: 🟢 Sprint 1 QA — FIX APPLIED — Ready for QA Re-Review
+## Current State: ✅ Sprint 1 FULLY APPROVED — M3 UNBLOCKED
 
-pixel-qa reviewed commit d26c94e. Build passes clean. Source gating is solid. One required fix was flagged: `OPENCLAW_AGENT_DIR` used a tilde literal that `fs` APIs will not resolve. **Fix applied by pixel-coder (2026-03-24):** replaced with `path.join(os.homedir(), '.openclaw', 'agents')`. Build confirmed clean post-fix.
+pixel-qa reviewed commit d26c94e, flagged tilde literal in `OPENCLAW_AGENT_DIR`. pixel-coder fixed in commit 528f2a6. **QA re-review (2026-03-24, commit 528f2a6): APPROVED ✅** — `src/constants.ts` now uses `path.join(os.homedir(), '.openclaw', 'agents')` with proper `os`/`path` imports. `npm run build` passes clean. Sprint 1 fully complete. M3 is unblocked.
+
+---
+
+## QA Re-Review — commit 528f2a6 (pixel-qa, 2026-03-24)
+
+### Verdict: ✅ APPROVED
+
+**Previously flagged fix confirmed. All checks pass.**
 
 ---
 
 ## QA Review — commit d26c94e (pixel-qa, 2026-03-24)
 
-### Verdict: ⚠️ REQUEST CHANGES
+### Verdict: ⚠️ REQUEST CHANGES (superseded by re-review above)
 
 **1 required fix, 1 minor note. All other checks pass.**
 
@@ -84,17 +92,13 @@ Functionally correct (openclaw agents have `undefined` terminalRef, never matche
 | terminalRef gating completeness | ✅ PASS (1 minor ungated loop — safe) |
 | Claude Code regression risk | ✅ PASS |
 | Type safety | ✅ PASS |
-| `OPENCLAW_AGENT_DIR` constant | 🔴 FAIL — tilde not resolved by fs APIs |
+| `OPENCLAW_AGENT_DIR` constant | ✅ PASS — fixed in 528f2a6 (`path.join(os.homedir(), ...)`) |
 | M3 readiness (`agentId`, `sessionKey`) | ✅ PASS |
 
 ---
 
-### Action Required (pixel-coder)
-1. **Fix `OPENCLAW_AGENT_DIR`** in `src/constants.ts` — replace `'~/.openclaw/agents'` with `path.join(os.homedir(), '.openclaw', 'agents')`.  
-   If adding imports to `constants.ts` is undesirable (it's currently import-free), define it in `openclawWatcher.ts` instead and remove from `constants.ts`.  
-   Either approach unblocks M3.
-
-After fix: re-run `npm run build` to confirm, then re-submit for QA.
+### ✅ Action Resolved (pixel-coder, 2026-03-24)
+1. **Fixed `OPENCLAW_AGENT_DIR`** in `src/constants.ts` — commit 528f2a6. QA re-review confirmed. Sprint 1 fully approved.
 
 ---
 
@@ -118,13 +122,13 @@ After fix: re-run `npm run build` to confirm, then re-submit for QA.
 
 ## What's Next (Sprint 1)
 
-### M1 — Fork + Dev Environment (pixel-coder) ✅ DONE 2026-03-24
+### M1 — Fork + Dev Environment (pixel-coder) ✅ DONE + QA APPROVED 2026-03-24
 - [x] Verify `npm run build` passes on macOS (arm64) — passes after `webview-ui npm install`
 - [ ] Run extension in F5 dev host, confirm existing Claude Code flow works (manual, deferred to QA)
 - [x] Add `OPENCLAW_AGENT_DIR` constant to `src/constants.ts` (`~/.openclaw/agents`)
 - [ ] Update `package.json` name/description for fork identity (deferred — not blocking)
 
-### M2 — AgentState Abstraction (pixel-coder) ✅ DONE 2026-03-24
+### M2 — AgentState Abstraction (pixel-coder) ✅ DONE + QA APPROVED 2026-03-24
 - [x] Add `source: 'claude-code' | 'openclaw'` to `AgentState`
 - [x] Make `terminalRef` optional (`terminalRef?: vscode.Terminal`)
 - [x] Add `agentId?: string` and `sessionKey?: string` to `AgentState`
