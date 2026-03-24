@@ -6,9 +6,9 @@
 
 ---
 
-## Current State: 🟡 Sprint 1 QA — REQUEST CHANGES (1 required fix before M3)
+## Current State: 🟢 Sprint 1 QA — FIX APPLIED — Ready for QA Re-Review
 
-pixel-qa reviewed commit d26c94e. Build passes clean. Source gating is solid. One required fix before M3 proceeds: `OPENCLAW_AGENT_DIR` uses a tilde literal that `fs` APIs will not resolve — must use `os.homedir()`.
+pixel-qa reviewed commit d26c94e. Build passes clean. Source gating is solid. One required fix was flagged: `OPENCLAW_AGENT_DIR` used a tilde literal that `fs` APIs will not resolve. **Fix applied by pixel-coder (2026-03-24):** replaced with `path.join(os.homedir(), '.openclaw', 'agents')`. Build confirmed clean post-fix.
 
 ---
 
@@ -109,7 +109,7 @@ After fix: re-run `npm run build` to confirm, then re-submit for QA.
 - [x] Sprint 1 task breakdown complete
 - [x] GitHub Discussion opened on pablodelucca/pixel-agents (upstream)
 - [x] **M1**: `npm run build` verified passing on macOS arm64
-- [x] **M1**: `OPENCLAW_AGENT_DIR` constant added to `src/constants.ts`
+- [x] **M1**: `OPENCLAW_AGENT_DIR` constant added to `src/constants.ts` (fixed: `os.homedir()` instead of tilde literal — 2026-03-24)
 - [x] **M2**: `source` discriminator on `AgentState` and `PersistedAgent`
 - [x] **M2**: `terminalRef` optional on `AgentState`; `terminalName` optional on `PersistedAgent`
 - [x] **M2**: All 5 terminal access sites source-gated (agentManager×2, PixelAgentsViewProvider×4, fileWatcher×1)

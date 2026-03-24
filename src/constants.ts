@@ -30,4 +30,6 @@ export const WORKSPACE_KEY_LAYOUT = 'pixel-agents.layout';
 export const TERMINAL_NAME_PREFIX = 'Claude Code';
 
 // ── OpenClaw Integration ────────────────────────────────────
-export const OPENCLAW_AGENT_DIR = '~/.openclaw/agents';
+import * as os from 'os';
+import * as path from 'path';
+export const OPENCLAW_AGENT_DIR = path.join(os.homedir(), '.openclaw', 'agents');
