@@ -1,14 +1,100 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-coder  
+**Updated by:** pixel-qa  
 **Current sprint:** Sprint 1 (M1 + M2)
 
 ---
 
-## Current State: 🟢 Sprint 1 Complete — Ready for M3
+## Current State: 🟡 Sprint 1 QA — REQUEST CHANGES (1 required fix before M3)
 
-M1 and M2 implemented and passing build. AgentState now has `source` discriminator; all terminal paths are source-gated. Ready for M3 (OpenClaw JSONL parser).
+pixel-qa reviewed commit d26c94e. Build passes clean. Source gating is solid. One required fix before M3 proceeds: `OPENCLAW_AGENT_DIR` uses a tilde literal that `fs` APIs will not resolve — must use `os.homedir()`.
+
+---
+
+## QA Review — commit d26c94e (pixel-qa, 2026-03-24)
+
+### Verdict: ⚠️ REQUEST CHANGES
+
+**1 required fix, 1 minor note. All other checks pass.**
+
+---
+
+### ✅ PASS — Build Integrity
+`npm run build` completes clean: `tsc --noEmit` → `eslint src` → `esbuild` → `vite build`.  
+No type errors, no lint errors, no build warnings.
+
+### ✅ PASS — Source Gating Completeness
+All terminal property accesses are guarded:
+- `agent.terminalRef.show()` / `.dispose()` — behind `source === 'claude-code' && terminalRef` (PixelAgentsViewProvider.ts:106, 111)
+- `agent.terminalRef === terminal/closed` — behind `source === 'claude-code'` (PixelAgentsViewProvider.ts:358, 369)
+- `agent.terminalRef.name` — behind `source === 'claude-code' && terminalRef` (agentManager.ts:196-197)
+- Terminal match in `restoreAgents()` — inside `if (agentSource === 'claude-code')` branch (agentManager.ts:233+)
+- `fileWatcher.ts:191` — `agent.terminalRef === activeTerminal` loop has **no explicit source guard** *(see minor note below)*; functionally safe (undefined !== Terminal is always false), no crash risk, TypeScript accepts it. Low priority.
+
+### ✅ PASS — Claude Code Regression Risk
+- `p.source ?? 'claude-code'` default in `restoreAgents()` safely handles legacy persisted agents without `source` field.
+- All 3 agent construction sites (`launchNewTerminal`, `adoptTerminalForFile`, `restoreAgents` claude-code branch) set `source: 'claude-code'` explicitly.
+- `source` is required on `AgentState` (not optional), so TypeScript enforces it at every construction site.
+- All Claude Code terminal paths are fully intact and unmodified in behavior.
+
+### ✅ PASS — Type Safety
+- `terminalRef?: vscode.Terminal` is optional; every read of `.show()`, `.dispose()`, `.name` is also behind a truthiness check. No unsafe property access anywhere.
+- `fileWatcher.ts:191` equality comparison `agent.terminalRef === activeTerminal` is safe — comparing `T | undefined` to `T` is valid TypeScript; `undefined !== anyObject` is always false.
+
+### 🔴 FAIL — Constants Placement (`OPENCLAW_AGENT_DIR`)
+**Required fix before M3.**
+
+```typescript
+// src/constants.ts — CURRENT (broken for fs usage)
+export const OPENCLAW_AGENT_DIR = '~/.openclaw/agents';
+```
+
+Node.js `fs` APIs (`fs.readdirSync`, `fs.watch`, `path.join(OPENCLAW_AGENT_DIR, ...)`) do **not** resolve `~`. The tilde is a shell expansion, not a Node.js path feature. `fs.readdirSync('~/.openclaw/agents')` will throw `ENOENT: no such file or directory`.
+
+This is consistent with how the rest of the codebase handles home-relative paths — `agentManager.ts` uses `path.join(os.homedir(), '.claude', 'projects', dirName)`.
+
+**Fix:**
+```typescript
+import * as os from 'os';
+import * as path from 'path';
+
+export const OPENCLAW_AGENT_DIR = path.join(os.homedir(), '.openclaw', 'agents');
+```
+Or, since `constants.ts` currently has no imports, define it as a function or move the path construction to `openclawWatcher.ts` where `os` is already imported. Either approach is acceptable — just don't store a raw `~` literal.
+
+### 📝 MINOR NOTE — `fileWatcher.ts:191` (no action required this sprint)
+The terminal ownership loop doesn't check `source` before comparing `terminalRef`:
+```typescript
+for (const agent of agents.values()) {
+  if (agent.terminalRef === activeTerminal) { // no source guard
+```
+Functionally correct (openclaw agents have `undefined` terminalRef, never matches). Consider adding `agent.source === 'claude-code' &&` for clarity in a future cleanup pass. Not blocking.
+
+### ✅ PASS — M3 Readiness
+`agentId?` and `sessionKey?` are present on both `AgentState` and `PersistedAgent`. Positioned correctly (right after `source`, before `projectDir`). JSONL parser in M3 can populate these directly.
+
+---
+
+### Summary Table
+
+| Check | Result |
+|-------|--------|
+| Build integrity (`npm run build`) | ✅ PASS |
+| terminalRef gating completeness | ✅ PASS (1 minor ungated loop — safe) |
+| Claude Code regression risk | ✅ PASS |
+| Type safety | ✅ PASS |
+| `OPENCLAW_AGENT_DIR` constant | 🔴 FAIL — tilde not resolved by fs APIs |
+| M3 readiness (`agentId`, `sessionKey`) | ✅ PASS |
+
+---
+
+### Action Required (pixel-coder)
+1. **Fix `OPENCLAW_AGENT_DIR`** in `src/constants.ts` — replace `'~/.openclaw/agents'` with `path.join(os.homedir(), '.openclaw', 'agents')`.  
+   If adding imports to `constants.ts` is undesirable (it's currently import-free), define it in `openclawWatcher.ts` instead and remove from `constants.ts`.  
+   Either approach unblocks M3.
+
+After fix: re-run `npm run build` to confirm, then re-submit for QA.
 
 ---
 
