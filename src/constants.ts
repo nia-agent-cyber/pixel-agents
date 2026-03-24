@@ -35,3 +35,11 @@ import * as path from 'path';
 export const OPENCLAW_AGENT_DIR = path.join(os.homedir(), '.openclaw', 'agents');
 /** Silence threshold (ms) for turn-end detection in OpenClaw sessions (no turn_duration signal). */
 export const OPENCLAW_IDLE_DELAY_MS = 500;
+/**
+ * Numeric ID base for OpenClaw agents.
+ * OpenClaw agent IDs are allocated from this floor upward, keeping them
+ * well above the Claude Code agent range (which starts at 1 and grows
+ * incrementally). This prevents ID collisions when restoreAgents() replays
+ * persisted Claude Code agents on webview ready.
+ */
+export const OPENCLAW_ID_BASE = 100000;
