@@ -1,7 +1,7 @@
 /**
  * openclawTranscriptParser.ts
  *
- * Parses OpenClaw pi-coding-agent JSONL session files and emits WebviewMessages
+ * Parses OpenClaw pi-coding-agent JSONL session files and emits OpenClawParserEvents
  * using the same protocol shape as the Claude Code transcript parser, so the
  * existing pixel-agents webview can animate OpenClaw agents without changes.
  *
@@ -26,26 +26,44 @@ import {
 } from './constants.js';
 
 // ── Tool name mapping ─────────────────────────────────────────────────────────
-// Maps raw OpenClaw tool names to display names for webview messages (D7).
-// Tools not in this map pass through as-is.
-const OPENCLAW_TOOL_MAP: Record<string, string> = {
-  Read: 'read_file',
-  Write: 'write_file',
-  Edit: 'edit_file',
-  exec: 'run_command',
-  web_search: 'web_search',
-  web_fetch: 'web_fetch',
-  browser: 'browser_action',
+// Maps raw OpenClaw tool names to the Claude Code display names that
+// formatToolStatus() recognises: Read, Write, Edit, Bash, WebFetch,
+// WebSearch, Grep, Task (D7). Tools not in this map pass through as-is.
+const TOOL_NAME_MAP: Record<string, string> = {
+  Read: 'Read',
+  Write: 'Write',
+  Edit: 'Edit',
+  exec: 'Bash',
+  web_search: 'WebSearch',
+  web_fetch: 'WebFetch',
+  browser: 'WebFetch', // closest visual match
+  sessions_spawn: 'Task',
+  memory_search: 'Grep',
+  message: 'Write',
+  image: 'Read',
+  tts: 'Write',
 };
 
 function mapToolName(raw: string): string {
-  return OPENCLAW_TOOL_MAP[raw] ?? raw;
+  return TOOL_NAME_MAP[raw] ?? raw;
 }
 
-// ── Webview message types ─────────────────────────────────────────────────────
+// ── Parser event types ────────────────────────────────────────────────────────
 
-/** Messages emitted by watchOpenClawAgent for consumption by the webview layer. */
-export type WebviewMessage =
+/**
+ * Internal event format emitted by watchOpenClawAgent / the OpenClaw parser.
+ *
+ * ⚠️  This is NOT the webview wire protocol.  The two diverge in the following
+ *     ways that M4 (the bridge layer) must resolve before posting to the
+ *     webview:
+ *
+ *       Parser field / value   →   Webview protocol field / value
+ *       ─────────────────────────────────────────────────────────
+ *       agentId  (string)      →   id  (number)
+ *       status: 'working'      →   status: 'active'
+ *       status: 'idle'         →   status: 'waiting'
+ */
+export type OpenClawParserEvent =
   | { type: 'agentToolStart'; agentId: string; tool: string; input: string }
   | { type: 'agentToolDone'; agentId: string; tool: string; result: string }
   | { type: 'agentStatus'; agentId: string; status: 'working' | 'idle' | 'error' };
@@ -82,7 +100,7 @@ function clearIdleTimer(state: ParserState): void {
 function scheduleIdleTimer(
   state: ParserState,
   agentId: string,
-  emit: (msg: WebviewMessage) => void,
+  emit: (msg: OpenClawParserEvent) => void,
 ): void {
   clearIdleTimer(state);
   state.idleTimer = setTimeout(() => {
@@ -100,7 +118,7 @@ function processLine(
   line: string,
   agentId: string,
   state: ParserState,
-  emit: (msg: WebviewMessage) => void,
+  emit: (msg: OpenClawParserEvent) => void,
 ): void {
   let record: Record<string, unknown>;
   try {
@@ -192,7 +210,7 @@ function readNewLinesForSession(
   filePath: string,
   agentId: string,
   state: ParserState,
-  emit: (msg: WebviewMessage) => void,
+  emit: (msg: OpenClawParserEvent) => void,
 ): void {
   try {
     const stat = fs.statSync(filePath);
@@ -232,13 +250,13 @@ function readNewLinesForSession(
  *
  * @param agentId    OpenClaw agent identifier (e.g. `'bakkt-coder'`)
  * @param sessionKey Session key — the bare filename without `.jsonl` extension
- * @param emit       Callback invoked for each WebviewMessage produced
+ * @param emit       Callback invoked for each OpenClawParserEvent produced
  * @returns          A VS Code Disposable; call `.dispose()` to stop watching
  */
 export function watchOpenClawAgent(
   agentId: string,
   sessionKey: string,
-  emit: (msg: WebviewMessage) => void,
+  emit: (msg: OpenClawParserEvent) => void,
 ): vscode.Disposable {
   const filePath = path.join(OPENCLAW_AGENT_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
   const state = createParserState();
@@ -308,15 +326,17 @@ export function watchOpenClawAgent(
 export async function listOpenClawAgents(): Promise<{ agentId: string; sessionKey: string }[]> {
   const results: { agentId: string; sessionKey: string }[] = [];
 
-  let agentDirs: string[];
+  let agentEntries: fs.Dirent[];
   try {
-    agentDirs = fs.readdirSync(OPENCLAW_AGENT_DIR);
+    agentEntries = fs.readdirSync(OPENCLAW_AGENT_DIR, { withFileTypes: true });
   } catch {
     // Directory doesn't exist yet — no agents registered
     return results;
   }
 
-  for (const agentId of agentDirs) {
+  for (const entry of agentEntries) {
+    if (!entry.isDirectory()) continue; // skip files / symlinks at top level
+    const agentId = entry.name;
     const sessionsDir = path.join(OPENCLAW_AGENT_DIR, agentId, 'sessions');
     let sessionFiles: string[];
     try {

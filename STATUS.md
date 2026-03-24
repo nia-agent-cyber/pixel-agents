@@ -1,12 +1,12 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 2 (M3) — ⚠️ REQUEST CHANGES
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 2 (M3) — ✅ FIXES APPLIED — ready for QA re-review
 
 ---
 
-## Current State: ⚠️ M3 REQUEST CHANGES — 2 Required Fixes Before M4
+## Current State: ✅ M3 FIXES APPLIED — Awaiting QA Re-Review
 
 ---
 
@@ -218,6 +218,30 @@ Once these two fixes land: re-submit for QA re-review.
 
 ---
 
+## pixel-coder Fix Response — 2026-03-24
+
+**Chosen approach: Option A (align with D7 — D7 was always correct).**
+
+### Fix #1 — Tool name map: use Claude Code display names ✅
+Replaced `OPENCLAW_TOOL_MAP` with `TOOL_NAME_MAP` in `src/openclawTranscriptParser.ts`:
+- All 12 entries now map to Claude Code display names (`Read`, `Write`, `Edit`, `Bash`, `WebFetch`, `WebSearch`, `Grep`, `Task`)
+- Added 5 previously missing entries: `sessions_spawn`, `memory_search`, `message`, `image`, `tts`
+- `DECISIONS.md` D7 unchanged — implementation now matches it exactly
+
+### Fix #2 — Rename `WebviewMessage` → `OpenClawParserEvent` ✅
+- Exported type renamed from `WebviewMessage` to `OpenClawParserEvent`
+- All 4 internal `emit` callback signatures updated
+- JSDoc comment added above the type documenting that it is **not** the webview wire protocol and listing the 3 mappings M4 must perform
+
+### Bonus — `listOpenClawAgents()` uses `withFileTypes: true` ✅
+Top-level agent dir scan now uses `{ withFileTypes: true }` + `entry.isDirectory()`.
+Non-directory entries are skipped cleanly without relying on try/catch.
+
+### Build
+`npm run build` — clean ✅ (tsc + eslint + esbuild + vite, zero errors/warnings)
+
+---
+
 ## Current State: ✅ Sprint 1 FULLY APPROVED — M3 UNBLOCKED
 
 pixel-qa reviewed commit d26c94e, flagged tilde literal in `OPENCLAW_AGENT_DIR`. pixel-coder fixed in commit 528f2a6. **QA re-review (2026-03-24, commit 528f2a6): APPROVED ✅** — `src/constants.ts` now uses `path.join(os.homedir(), '.openclaw', 'agents')` with proper `os`/`path` imports. `npm run build` passes clean. Sprint 1 fully complete. M3 is unblocked.
@@ -370,7 +394,11 @@ Functionally correct (openclaw agents have `undefined` terminalRef, never matche
 
 **Exported API surface:**
 ```typescript
-export type WebviewMessage =
+/**
+ * Internal event format — NOT the webview wire protocol.
+ * M4 must translate: agentId(string)→id(number), 'working'→'active', 'idle'→'waiting'.
+ */
+export type OpenClawParserEvent =
   | { type: 'agentToolStart'; agentId: string; tool: string; input: string }
   | { type: 'agentToolDone';  agentId: string; tool: string; result: string }
   | { type: 'agentStatus';    agentId: string; status: 'working' | 'idle' | 'error' };
@@ -378,7 +406,7 @@ export type WebviewMessage =
 export function watchOpenClawAgent(
   agentId: string,
   sessionKey: string,
-  emit: (msg: WebviewMessage) => void,
+  emit: (msg: OpenClawParserEvent) => void,
 ): vscode.Disposable;
 
 export async function listOpenClawAgents(): Promise<
@@ -386,16 +414,21 @@ export async function listOpenClawAgents(): Promise<
 >;
 ```
 
-**Tool name map (DECISIONS.md D7 as specified):**
-| OpenClaw raw | Displayed as |
+**Tool name map — aligned with DECISIONS.md D7 (Fix #1 applied 2026-03-24):**
+| OpenClaw raw | Displayed as (Claude Code display name) |
 |---|---|
-| `Read` | `read_file` |
-| `Write` | `write_file` |
-| `Edit` | `edit_file` |
-| `exec` | `run_command` |
-| `web_search` | `web_search` |
-| `web_fetch` | `web_fetch` |
-| `browser` | `browser_action` |
+| `Read` | `Read` |
+| `Write` | `Write` |
+| `Edit` | `Edit` |
+| `exec` | `Bash` |
+| `web_search` | `WebSearch` |
+| `web_fetch` | `WebFetch` |
+| `browser` | `WebFetch` |
+| `sessions_spawn` | `Task` |
+| `memory_search` | `Grep` |
+| `message` | `Write` |
+| `image` | `Read` |
+| `tts` | `Write` |
 | *(any other)* | raw tool name |
 
 **Edge cases noted:**
