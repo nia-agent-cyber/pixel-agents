@@ -1,12 +1,34 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-24  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 2 (M3) — ✅ FIXES APPLIED — ready for QA re-review
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 3 (M4)
 
 ---
 
-## Current State: ✅ M3 FIXES APPLIED — Awaiting QA Re-Review
+## Current State: ✅ M3 FULLY APPROVED — Sprint 3 (M4) UNBLOCKED
+
+---
+
+## QA Re-Review — commit 54d0ad3 (pixel-qa, 2026-03-24)
+
+### Verdict: ✅ APPROVED
+
+**All 3 fixes confirmed. Build clean. M4 is unblocked.**
+
+| Check | Result |
+|-------|--------|
+| `npm run build` | ✅ PASS — tsc + eslint + esbuild + vite, zero errors |
+| Fix #1: `TOOL_NAME_MAP` uses Claude Code display names | ✅ PASS — `exec→Bash`, `web_search→WebSearch`, `web_fetch→WebFetch` |
+| Fix #1: All 5 new entries present | ✅ PASS — `sessions_spawn→Task`, `memory_search→Grep`, `message→Write`, `image→Read`, `tts→Write` |
+| Fix #1: Matches DECISIONS.md D7 | ✅ PASS |
+| Fix #2: Type renamed `OpenClawParserEvent` throughout | ✅ PASS — 5 occurrences + JSDoc |
+| Fix #2: Zero residual `WebviewMessage` references | ✅ PASS — `grep -rn WebviewMessage src/` → no matches |
+| Fix #2: JSDoc documents M4 translation requirements | ✅ PASS — `agentId→id`, `working→active`, `idle→waiting` all documented |
+| Bonus: `listOpenClawAgents()` uses `withFileTypes: true` | ✅ PASS |
+| Bonus: `entry.isDirectory()` guard present | ✅ PASS |
+
+**Sprint 3 (M4) is unblocked. Pixel-coder may proceed with `openclawWatcher.ts`.**
 
 ---
 
