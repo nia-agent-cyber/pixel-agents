@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel Office — Agent Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --bg2: #161b22;
+      --bg3: #21262d;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --orange: #ffa657;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    header .logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+    header .logo span { color: var(--text-muted); }
+    header .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    header .status-dot.offline { background: var(--red); animation: none; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    header .refresh-info {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────── */
+    .sidebar {
+      width: 260px;
+      min-width: 200px;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .agent-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .agent-list::-webkit-scrollbar { width: 4px; }
+    .agent-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .agent-group { margin-bottom: 4px; }
+    .agent-name {
+      padding: 6px 14px 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .agent-name .agent-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .agent-name.active .agent-dot { background: var(--green); }
+
+    .session-item {
+      padding: 6px 14px 6px 26px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin: 1px 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .session-item:hover { background: var(--bg3); color: var(--text); }
+    .session-item.selected { background: var(--bg3); color: var(--accent); }
+    .session-item .session-key {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .session-item .session-age {
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* ── Main ────────────────────────────────────────────────────── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .main-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .main-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+    .sse-indicator {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sse-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .sse-dot.live { background: var(--green); animation: pulse 2s infinite; }
+
+    .feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+    .feed::-webkit-scrollbar { width: 6px; }
+    .feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      gap: 12px;
+    }
+    .empty-state .icon { font-size: 48px; opacity: 0.4; }
+    .empty-state .title { font-size: 16px; font-weight: 600; }
+    .empty-state .subtitle { font-size: 13px; }
+
+    /* ── Feed items ─────────────────────────────────────────────── */
+    .feed-item {
+      padding: 8px 20px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      border-bottom: 1px solid transparent;
+      transition: background 0.1s;
+    }
+    .feed-item:hover { background: var(--bg2); }
+    .feed-item.new { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn {
+      from { background: rgba(88, 166, 255, 0.08); }
+      to { background: transparent; }
+    }
+
+    .feed-ts {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: monospace;
+      flex-shrink: 0;
+      width: 58px;
+      padding-top: 2px;
+    }
+
+    .feed-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .feed-body { flex: 1; min-width: 0; }
+    .feed-label {
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .feed-detail {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    /* Tool type colors */
+    .tool-read   { background: rgba(63, 185, 80, 0.15);  color: var(--green); }
+    .tool-write  { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+    .tool-bash   { background: rgba(188, 140, 255, 0.15); color: var(--purple); }
+    .tool-search { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+    .tool-net    { background: rgba(255, 166, 87, 0.15); color: var(--orange); }
+    .tool-msg    { background: rgba(63, 185, 80, 0.15);  color: var(--green); }
+    .tool-misc   { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
+
+    .badge-done {
+      font-size: 10px;
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--green);
+      border-radius: 3px;
+      padding: 1px 5px;
+    }
+    .badge-text {
+      font-size: 10px;
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--accent);
+      border-radius: 3px;
+      padding: 1px 5px;
+    }
+
+    .text-item .feed-detail {
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+    }
+
+    /* Loading spinner */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 13px;
+      gap: 10px;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="status-dot" id="statusDot"></div>
+    <div class="logo">pixel <span>/</span> office</div>
+    <div class="refresh-info" id="refreshInfo">Refreshing…</div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">Agents &amp; Sessions</div>
+      <div class="agent-list" id="agentList">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
+    </aside>
+
+    <main class="main" id="mainArea">
+      <div class="empty-state">
+        <div class="icon">🤖</div>
+        <div class="title">Select a session</div>
+        <div class="subtitle">Choose an agent session from the sidebar to view activity</div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────
+    let selectedAgent = null;
+    let selectedSession = null;
+    let sseSource = null;
+    let agents = [];
+    let autoScroll = true;
+
+    // ── Utilities ──────────────────────────────────────────────────────────
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const diff = Date.now() - new Date(iso).getTime();
+      const s = Math.floor(diff / 1000);
+      if (s < 60) return `${s}s`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h`;
+      return `${Math.floor(h / 24)}d`;
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function toolClass(tool) {
+      const t = tool.toLowerCase();
+      if (['read', 'image'].includes(t)) return 'tool-read';
+      if (['write', 'edit'].includes(t)) return 'tool-write';
+      if (t === 'bash') return 'tool-bash';
+      if (['websearch', 'search'].includes(t)) return 'tool-search';
+      if (['webfetch', 'browser'].includes(t)) return 'tool-net';
+      if (['message', 'tts'].includes(t)) return 'tool-msg';
+      return 'tool-misc';
+    }
+
+    function toolIcon(tool) {
+      const t = tool.toLowerCase();
+      if (t === 'read') return '📖';
+      if (t === 'write') return '✏️';
+      if (t === 'edit') return '🔧';
+      if (t === 'bash') return '⚡';
+      if (t === 'websearch') return '🔍';
+      if (t === 'webfetch') return '🌐';
+      if (t === 'browser') return '🖥️';
+      if (t === 'task') return '🚀';
+      if (t === 'message') return '💬';
+      if (t === 'tts') return '🔊';
+      if (t === 'image') return '🖼️';
+      if (t === 'canvas') return '🎨';
+      if (t === 'nodes') return '📡';
+      if (t === 'process') return '⚙️';
+      if (t === 'subagents') return '🤖';
+      return '🔨';
+    }
+
+    // ── Sidebar rendering ──────────────────────────────────────────────────
+    function renderSidebar() {
+      const list = document.getElementById('agentList');
+      if (!agents.length) {
+        list.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">No agent sessions found</div>';
+        return;
+      }
+
+      let html = '';
+      for (const agent of agents) {
+        const isActive = selectedAgent === agent.agentId;
+        html += `<div class="agent-group">
+          <div class="agent-name ${isActive ? 'active' : ''}">
+            <div class="agent-dot"></div>${agent.agentId}
+          </div>`;
+        for (const sess of agent.sessions) {
+          const isSelected = selectedAgent === agent.agentId && selectedSession === sess.sessionKey;
+          const shortKey = sess.sessionKey.slice(0, 8);
+          html += `<div class="session-item ${isSelected ? 'selected' : ''}"
+            onclick="selectSession('${agent.agentId}', '${sess.sessionKey}')"
+            title="${sess.sessionKey}">
+            <span class="session-key">${shortKey}…</span>
+            <span class="session-age">${relativeTime(sess.mtime)}</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+      list.innerHTML = html;
+    }
+
+    // ── Main area ──────────────────────────────────────────────────────────
+    function showEmpty() {
+      document.getElementById('mainArea').innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🤖</div>
+          <div class="title">Select a session</div>
+          <div class="subtitle">Choose an agent session from the sidebar to view activity</div>
+        </div>`;
+    }
+
+    function showLoading(agentId, sessionKey) {
+      document.getElementById('mainArea').innerHTML = `
+        <div class="main-header">
+          <div class="main-title">${agentId}</div>
+          <div class="main-subtitle">${sessionKey}</div>
+          <div class="sse-indicator"><div class="sse-dot"></div>Connecting…</div>
+        </div>
+        <div class="loading"><div class="spinner"></div> Loading events…</div>`;
+    }
+
+    function setupMainArea(agentId, sessionKey) {
+      document.getElementById('mainArea').innerHTML = `
+        <div class="main-header">
+          <div class="main-title">${agentId}</div>
+          <div class="main-subtitle">${sessionKey}</div>
+          <div class="sse-indicator" id="sseIndicator">
+            <div class="sse-dot" id="sseDot"></div>
+            <span id="sseStatus">Connecting…</span>
+          </div>
+        </div>
+        <div class="feed" id="eventFeed"></div>`;
+
+      const feed = document.getElementById('eventFeed');
+      feed.addEventListener('scroll', () => {
+        autoScroll = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 40;
+      });
+    }
+
+    function scrollFeedToBottom() {
+      if (!autoScroll) return;
+      const feed = document.getElementById('eventFeed');
+      if (feed) feed.scrollTop = feed.scrollHeight;
+    }
+
+    // ── Event rendering ────────────────────────────────────────────────────
+    let pendingTools = {}; // toolCallId → feed item element
+
+    function renderEvent(event, isNew = false) {
+      const feed = document.getElementById('eventFeed');
+      if (!feed) return;
+
+      if (event.type === 'toolStart') {
+        const div = document.createElement('div');
+        div.className = `feed-item ${isNew ? 'new' : ''}`;
+        div.dataset.toolCallId = event.toolCallId || '';
+        div.innerHTML = `
+          <div class="feed-ts">${fmtTime(event.timestamp)}</div>
+          <div class="feed-icon ${toolClass(event.tool)}">${toolIcon(event.tool)}</div>
+          <div class="feed-body">
+            <div class="feed-label">${event.tool}</div>
+            <div class="feed-detail">${escHtml(event.input || '')}</div>
+          </div>`;
+        feed.appendChild(div);
+        if (event.toolCallId) pendingTools[event.toolCallId] = div;
+        scrollFeedToBottom();
+
+      } else if (event.type === 'toolDone') {
+        const pending = event.toolCallId && pendingTools[event.toolCallId];
+        if (pending) {
+          const label = pending.querySelector('.feed-label');
+          if (label && !label.querySelector('.badge-done')) {
+            label.insertAdjacentHTML('beforeend', '<span class="badge-done">done</span>');
+          }
+          delete pendingTools[event.toolCallId];
+        }
+
+      } else if (event.type === 'text') {
+        const div = document.createElement('div');
+        div.className = `feed-item text-item ${isNew ? 'new' : ''}`;
+        div.innerHTML = `
+          <div class="feed-ts">${fmtTime(event.timestamp)}</div>
+          <div class="feed-icon tool-misc">💬</div>
+          <div class="feed-body">
+            <div class="feed-label"><span class="badge-text">message</span></div>
+            <div class="feed-detail">${escHtml(event.text || '')}</div>
+          </div>`;
+        feed.appendChild(div);
+        scrollFeedToBottom();
+      }
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Session selection ──────────────────────────────────────────────────
+    async function selectSession(agentId, sessionKey) {
+      if (selectedAgent === agentId && selectedSession === sessionKey) return;
+
+      // Close existing SSE
+      if (sseSource) { sseSource.close(); sseSource = null; }
+      pendingTools = {};
+      autoScroll = true;
+
+      selectedAgent = agentId;
+      selectedSession = sessionKey;
+      renderSidebar();
+      showLoading(agentId, sessionKey);
+
+      // Load historical events
+      try {
+        const resp = await fetch(`/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionKey)}`);
+        const data = await resp.json();
+        setupMainArea(agentId, sessionKey);
+
+        for (const ev of data.events) {
+          renderEvent(ev, false);
+        }
+
+        // Connect SSE for live updates
+        connectSSE(agentId, sessionKey);
+      } catch (e) {
+        document.getElementById('mainArea').innerHTML = `
+          <div class="empty-state">
+            <div class="icon">⚠️</div>
+            <div class="title">Error loading session</div>
+            <div class="subtitle">${escHtml(String(e))}</div>
+          </div>`;
+      }
+    }
+
+    function connectSSE(agentId, sessionKey) {
+      const url = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionKey)}/events`;
+      sseSource = new EventSource(url);
+
+      sseSource.onopen = () => {
+        const dot = document.getElementById('sseDot');
+        const status = document.getElementById('sseStatus');
+        if (dot) dot.className = 'sse-dot live';
+        if (status) status.textContent = 'Live';
+      };
+
+      sseSource.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data);
+          renderEvent(event, true);
+        } catch {}
+      };
+
+      sseSource.onerror = () => {
+        const dot = document.getElementById('sseDot');
+        const status = document.getElementById('sseStatus');
+        if (dot) dot.className = 'sse-dot';
+        if (status) status.textContent = 'Reconnecting…';
+      };
+    }
+
+    // ── Agent list polling ─────────────────────────────────────────────────
+    let lastFetch = null;
+
+    async function refreshAgents() {
+      try {
+        const resp = await fetch('/api/agents');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        agents = await resp.json();
+        renderSidebar();
+
+        const dot = document.getElementById('statusDot');
+        if (dot) dot.className = 'status-dot';
+
+        const info = document.getElementById('refreshInfo');
+        if (info) {
+          const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          info.textContent = `Updated ${now} · ${agents.length} agent${agents.length !== 1 ? 's' : ''}`;
+        }
+        lastFetch = Date.now();
+      } catch (e) {
+        const dot = document.getElementById('statusDot');
+        if (dot) dot.className = 'status-dot offline';
+        const info = document.getElementById('refreshInfo');
+        if (info) info.textContent = 'Connection error';
+      }
+    }
+
+    // Initial load + polling
+    refreshAgents();
+    setInterval(refreshAgents, 5000);
+  </script>
+</body>
+</html>
