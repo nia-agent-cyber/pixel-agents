@@ -1,12 +1,199 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-ba  
-**Current sprint:** Sprint 5 complete → Sprint 6 planning
+**Updated by:** pixel-pm  
+**Current sprint:** Sprint 6 in progress (M8 + M9)
 
 ---
 
 ## Current State: ✅ SPRINT 5 COMPLETE — Web pixel office live at office.niavoice.org
+
+---
+
+## Sprint 6 — Agent Detail Panel + README Overhaul
+
+**Goal:** Graduate the pixel office from "demo" to "daily tool" by unlocking agent context on click and making the project self-documenting.  
+**Milestones:** M8 (Agent Detail Panel) + M9 (README overhaul)  
+**Status:** 🚀 IN PROGRESS  
+**Kicked off:** 2026-03-25
+
+---
+
+### M8 — Agent Detail Panel (click → inspect)
+
+**Summary:** Clicking a pixel character in the browser office opens a lightweight overlay panel showing live agent context — label, status, recent tool calls, and time since last activity.
+
+#### Acceptance Criteria (all must pass)
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| AC1 | Clicking any pixel character opens the detail panel | Click a character in the browser office → panel appears |
+| AC2 | Panel shows agent label + session key (copyable) | Panel renders `label` and `sessionKey` fields; click-to-copy works |
+| AC3 | Panel shows current status badge (active / waiting / removed) with correct colour | Trigger tool activity → badge turns active (green); tool completes → waiting (yellow) |
+| AC4 | Panel shows last 3–5 tool calls with display status strings | Run 3+ tools in a session → panel lists them in reverse chronological order |
+| AC5 | Panel shows "X seconds/minutes ago" time since last activity | Check panel after a period of agent inactivity — time updates each render |
+| AC6 | Panel is dismissed by clicking outside it or pressing Escape | Click backdrop / press Escape → panel closes |
+| AC7 | Panel only renders in browser runtime (isBrowserRuntime guard) | VS Code webview path: no panel component loaded; no JS errors |
+| AC8 | `npm run build` passes clean (zero errors/warnings) | Run `cd webview-ui && npm run build` |
+| AC9 | Built output copied to `office-server/public/ui/` | Files in `office-server/public/ui/assets/` are newer than source |
+
+#### Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| `webview-ui/src/browserAgentFeed.ts` | Expose `agentDetailStore` — module-level Map keyed by numericId, tracking `{ label, sessionKey, status, recentTools: string[], lastActivityAt: number }`. Update all event handlers to write into this store alongside existing dispatch calls. Export `subscribeAgentDetail(id, cb)` and `getAgentDetail(id)`. |
+| `webview-ui/src/components/AgentDetailPanel.tsx` | **New** — lightweight overlay React component. Props: `agentId: number \| null`, `onClose: () => void`. Reads from `getAgentDetail(agentId)` and re-renders on a 1-second `setInterval` (for live "time since" update). No new npm deps — plain React + inline styles. |
+| `webview-ui/src/App.tsx` | Wire click handler on pixel characters (in `isBrowserRuntime` path only). Track `selectedAgentId: number \| null` in local state. Render `<AgentDetailPanel>` when non-null. |
+
+#### Gotchas / Dependencies
+
+- **Data source is already tracked**: `activeAgents` Map in `browserAgentFeed.ts` has numericId, pendingTools. We need to *extend* it with `recentTools` ring buffer (keep last 5) and `lastActivityAt` timestamp. No new SSE events needed.
+- **Click target**: Pixel characters are rendered in the canvas/SVG layer. Identify the correct click event attachment point in the existing component tree (likely the character `<div>` or `<img>` in the office renderer). The click handler must pass the agent's numericId.
+- **TypeScript strict**: No `enum`, `import type` for type-only, `noUnusedLocals`/`noUnusedParameters` enforced. Use `as const` for status values.
+- **isBrowserRuntime guard**: `AgentDetailPanel` must never be imported in the VS Code path. Use dynamic import or conditional rendering gated on `isBrowserRuntime` from `runtime.ts`.
+- **Rebuild + copy**: After `npm run build`, copy output to `office-server/public/ui/` (the `build:standalone` script does this automatically).
+
+---
+
+### M9 — README Overhaul
+
+**Summary:** The current README has zero mention of the OpenClaw adapter, the web office, or `office.niavoice.org`. This milestone makes the project self-serve.
+
+#### Acceptance Criteria
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| AC1 | README has `## OpenClaw Web Office` section with self-serve setup steps | Read README — section present with numbered setup instructions |
+| AC2 | Setup steps cover: clone → `npm install` → start `office-server` → visit URL | Steps are complete enough that a developer can self-serve without asking |
+| AC3 | Features list mentions OpenClaw support + web office | `## Features` section updated |
+| AC4 | Screenshot referenced using `office-server/public/ui/Screenshot.jpg` | `![Web Office Screenshot](office-server/public/ui/Screenshot.jpg)` or similar in README |
+| AC5 | Install instructions cover both VS Code extension path AND web-only path | Two install paths clearly labelled |
+| AC6 | `office.niavoice.org` URL mentioned as the live instance | URL appears in the README |
+
+#### Files to Modify
+
+| File | Change |
+|------|--------|
+| `README.md` | Add `## OpenClaw Web Office` section; update Features; add screenshot; dual install instructions |
+
+#### Gotchas / Dependencies
+
+- Check existing `README.md` structure before inserting — place new section logically (after Features, before Contributing or at end of setup section).
+- Screenshot file exists at `office-server/public/ui/Screenshot.jpg` — use a relative path that renders correctly on GitHub.
+- Keep the existing VS Code extension install instructions intact — do not replace, only augment.
+- No build step required for this milestone.
+
+---
+
+## Sprint 7 — Upstream PR + Browser Push Notifications
+
+**Goal:** Make the project discoverable via upstream PR and turn the pixel office into a tool you depend on (not just admire) via push notifications.  
+**Milestones:** M10 (Upstream PR) + M11 (Browser push notifications)  
+**Status:** ⏳ BLOCKED — starts after Sprint 6 QA approval  
+
+---
+
+### M10 — Upstream PR to pablodelucca/pixel-agents
+
+**Summary:** Open the Phase 2 PR to upstream to validate the architecture and create organic discoverability.
+
+#### Acceptance Criteria
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| AC1 | `nia-agent-cyber/pixel-agents:main` rebases cleanly onto `pablodelucca/pixel-agents:main` | `git rebase upstream/main` exits 0 (or manual conflict resolution documented) |
+| AC2 | PR opened with a description explaining the OpenClaw adapter design (D1–D9 points) | PR URL exists; description covers architecture decisions |
+| AC3 | PR description includes a screenshot of the live web office | `office.niavoice.org` screenshot or `Screenshot.jpg` embedded in PR body |
+| AC4 | CI passes on the PR branch | GitHub checks green |
+| AC5 | PR receives at least one comment from upstream maintainer (stretch) | pablodelucca leaves a review comment |
+
+#### Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| None new | Rebase + open PR. May require minor conflict resolution in `package.json` / `CHANGELOG.md` if upstream has diverged. |
+
+#### Gotchas / Dependencies
+
+- **Rebase first**: Check `git log --oneline upstream/main..HEAD` to understand divergence before opening the PR.
+- **PR description**: Should explain D1 (zero OpenClaw changes), D2 (fork rationale), D4/D5 (separate parser/watcher files), the browser office architecture — enough that a stranger understands the design intent.
+- **upstream remote**: Add `upstream` remote if not present: `git remote add upstream https://github.com/pablodelucca/pixel-agents.git`.
+- **Don't force-push `main` after PR**: Create a feature branch `feature/openclaw-adapter` for the upstream PR to avoid disrupting our `main`.
+
+---
+
+### M11 — Browser Push Notifications
+
+**Summary:** When an agent transitions from `active` → `waiting`, fire a browser Notification API alert. Closes the loop for background-tab usage.
+
+#### Acceptance Criteria
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| AC1 | On first load, browser prompts for notification permission | Open `office.niavoice.org` in a fresh browser → `Notification.requestPermission()` dialog appears |
+| AC2 | When an agent transitions `active` → `waiting`, a browser notification fires | Trigger a tool run; wait for completion → notification appears (even with tab in background) |
+| AC3 | Notification shows agent label + last tool used | Check notification body |
+| AC4 | Notification does NOT fire for agents that just connected (status `waiting` from cold `agentAdded`) | Connect to a live session → no notification on initial waiting state |
+| AC5 | Notification does NOT fire for `active` → `waiting` transitions within 2s of `agentAdded` | Reconnect replay: agents that appear and immediately go to waiting do not notify |
+| AC6 | Only fires in browser runtime (isBrowserRuntime guard) | VS Code webview path: no notification code loaded |
+| AC7 | `npm run build` passes clean | `cd webview-ui && npm run build` |
+
+#### Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| `webview-ui/src/browserNotifications.ts` | **New** — notification manager. `initBrowserNotifications()` requests permission once. `notifyAgentWaiting(label, lastTool)` fires notification if permission granted. Tracks `agentAddedAt: Map<numericId, number>` to filter 2s cooldown. |
+| `webview-ui/src/browserAgentFeed.ts` | On `active` → `waiting` transition: call `notifyAgentWaiting(label, lastTool)` from `browserNotifications.ts`. Pass `lastActivityAt` from the detail store for cooldown check. |
+| `webview-ui/src/App.tsx` | Call `initBrowserNotifications()` in `isBrowserRuntime` useEffect alongside `initBrowserAgentFeed()`. |
+
+#### Gotchas / Dependencies
+
+- **Browser Notification API availability**: check `'Notification' in window` before calling — Safari has quirks; wrap in guard.
+- **Permission must be requested in a user gesture context** (or on first load before tab goes background). Request in a `useEffect` or after a user interaction — not in a background callback.
+- **`active` → `waiting` detection**: `browserAgentFeed.ts` currently dispatches `agentStatus: waiting` both on cold `agentAdded` (never active) and on `toolDone` with no pending tools (was active). Need to track `previousStatus` per agent to differentiate. Add `previousStatus` field to the `activeAgents` store entry.
+- **2s cooldown**: `Date.now() - agentAddedAt > 2000` before notifying. Store `agentAddedAt` in the detail store when `onAgentAdded` fires.
+- **Rebuild + copy** after changes.
+
+---
+
+## Sprint 8 — Session Transcript Viewer
+
+**Goal:** Full in-browser session log for agents that errored or completed. Useful for post-mortem reviews.  
+**Milestone:** M12 (Session transcript viewer)  
+**Status:** ⏳ ON HOLD — start only if M8 panel is insufficient for daily use after Sprint 6 validation  
+
+---
+
+### M12 — Session Transcript Viewer
+
+**Summary:** Extend the M8 detail panel with an expandable "View full log" link that loads the last N JSONL events as a structured, read-only log panel.
+
+#### Acceptance Criteria
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| AC1 | `GET /api/agents/:agentId/sessions/:sessionKey/transcript?last=30` returns structured JSON | `curl` the endpoint → array of `{ type, tool?, input?, output?, timestamp }` objects |
+| AC2 | Endpoint streams last `N` lines (default 30, configurable via query param) | Pass `?last=10` → exactly 10 or fewer entries returned |
+| AC3 | Web UI shows a compact read-only log panel expandable from the M8 detail panel | Click "View full log" in the detail panel → transcript panel opens below |
+| AC4 | Tool calls shown with tool name + truncated input/output | Each entry shows tool name and ≤120 chars of input/output |
+| AC5 | Panel is scrollable and closes without affecting the main office view | Scroll within panel; close → office returns to normal |
+| AC6 | Endpoint only reads existing JSONL files — no new state maintained | Server: reads file, parses last N lines, returns, exits. No in-memory state. |
+| AC7 | `npm run build` passes clean and `node office-server/server.js` starts without errors | Build + server start checks |
+
+#### Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| `office-server/server.js` | New `GET /api/agents/:agentId/sessions/:sessionKey/transcript` endpoint. Reads the JSONL file (tail last N lines), parses each line, returns JSON array. Declare BEFORE the existing `/:agentId/sessions/:sessionKey/events` route. |
+| `webview-ui/src/components/TranscriptViewer.tsx` | **New** — read-only log component. Fetches from transcript endpoint on mount. Renders list of tool events. Expandable from `AgentDetailPanel`. |
+| `webview-ui/src/components/AgentDetailPanel.tsx` | Add "View full log" toggle that mounts/unmounts `TranscriptViewer`. |
+
+#### Gotchas / Dependencies
+
+- **Route order**: New transcript endpoint must be declared BEFORE `/:agentId/sessions/:sessionKey/events` to avoid Express param collision. Double-check route ordering.
+- **JSONL tail**: For large files, avoid reading the entire file. Read last N lines efficiently using a seek-to-end approach or a streaming reverse-read (the file can be many MB for long sessions).
+- **Hold condition**: Only start M12 if M8 panel proves insufficient for daily use. Validate after 1 week of real Sprint 6 usage. If the panel covers 80%+ of the debugging need, skip M12 this sprint.
+- **Dependency on M8**: M12 UI extends the M8 panel — M8 must be merged and stable before M12 begins.
 
 ---
 
