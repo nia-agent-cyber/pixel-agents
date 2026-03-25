@@ -1,12 +1,40 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-pm (M8 + M9 impl)  
-**Current sprint:** Sprint 6 — M8 + M9 implemented, awaiting QA
+**Updated by:** pixel-coder (M8 QA fixes)  
+**Current sprint:** Sprint 6 — M8 + M9 implemented, QA fixes applied, awaiting QA re-review
 
 ---
 
-## Current State: 🚀 SPRINT 6 IN PROGRESS — M8 + M9 implemented, awaiting QA
+## Current State: 🚀 SPRINT 6 IN PROGRESS — M8 QA fixes applied, awaiting QA re-review
+
+---
+
+## Sprint 6 (M8 QA fixes) — pixel-coder, 2026-03-25
+
+### Summary
+
+QA rejected M8 with 4 issues (Critical 1+2 same root cause, Minor 3, Minor 4). All fixed.
+`npm run build` + `npm run build:standalone` both pass clean after fixes.
+
+### Fixes applied
+
+| Fix | File | Change |
+|-----|------|--------|
+| Critical 1+2 — lazy AgentDetailPanel | `webview-ui/src/App.tsx` | Replaced static `import { AgentDetailPanel }` with `React.lazy(() => import(...).then(m => ({ default: m.AgentDetailPanel })))` + wrapped JSX usage in `<React.Suspense fallback={null}>`. Eliminates Vite INEFFECTIVE_DYNAMIC_IMPORT warning; keeps browser-only code out of VS Code bundle. |
+| Minor 3 — onText status update | `webview-ui/src/browserAgentFeed.ts` | Added `entry.status = 'active'` before existing `entry.lastActivityAt = Date.now()` in `onText()`. Detail store now reflects active status on text events. |
+| Minor 4 — key prop on tool list | `webview-ui/src/components/AgentDetailPanel.tsx` | Replaced `key={i}` with `key={\`${i}-${tool.slice(0, 20)}\`}` for content-based keys. |
+
+### Build
+
+- `cd webview-ui && npm run build` — ✅ clean (tsc + vite, zero errors/warnings)
+- `cd webview-ui && npm run build:standalone` — ✅ output at `office-server/public/ui/`
+
+### Commit
+
+`d8c05a1` — `fix: M8 QA fixes — lazy AgentDetailPanel, onText status, key prop`
+
+### Status: ⏳ AWAITING QA RE-REVIEW
 
 ---
 
@@ -31,9 +59,9 @@ M8 (Agent Detail Panel) and M9 (README overhaul) implemented end-to-end.
 
 - `cd webview-ui && npm run build` — ✅ clean (tsc + vite, zero errors/warnings)
 - `cd webview-ui && npm run build:standalone` — ✅ output confirmed at `office-server/public/ui/`
-- Note: one harmless Vite warning about `browserAgentFeed.ts` being both dynamically and statically imported (caused by `AgentDetailPanel` importing it directly while `App.tsx` uses dynamic import for `initBrowserAgentFeed`). This is benign — both end up in the same chunk, which is the desired behaviour.
+- Note: `AgentDetailPanel` is now code-split via `React.lazy` (QA fix); Vite INEFFECTIVE_DYNAMIC_IMPORT warning eliminated.
 
-### Status: ⏳ AWAITING QA
+### Status: ✅ QA FIXES APPLIED — awaiting re-review
 
 ---
 
