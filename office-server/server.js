@@ -232,7 +232,10 @@ function scanAgents() {
 
         for (const sf of sessionFiles) {
           const sessionKey = sf.file.replace('.jsonl', '');
-          const label = sessionLabels[sessionKey] || agentId;
+          // For named agent dirs (bakkt-coder, voice-pm etc.) use dir name as label.
+          // For 'main' dir, only show sessions with explicit labels (actual subagents).
+          const label = sessionLabels[sessionKey] || (agentId !== 'main' ? agentId : null);
+          if (!label) continue; // skip raw chat sessions
           agents.push({
             agentId,
             sessionKey,
@@ -447,7 +450,7 @@ function stopSessionFeed(agentId, sessionKey) {
   activeSessions.delete(key);
 }
 
-const RECENT_SESSION_MS = 30 * 60 * 1000; // only track sessions active in last 30min
+const RECENT_SESSION_MS = 60 * 60 * 1000; // only track sessions active in last 1h
 
 function scanForNewSessions() {
   const sessions = scanAgents();
