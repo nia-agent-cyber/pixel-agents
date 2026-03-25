@@ -335,7 +335,7 @@ function migrateLayout(layout: OfficeLayout): OfficeLayout {
 
   // Migrate old VOID value (was 8, now 255) — only for legacy layouts since FLOOR_8 reuses value 8
   const OLD_VOID = 8;
-  if (!layout.layoutRevision && layout.tiles.includes(OLD_VOID as TileTypeVal)) {
+  if (!layout.layoutRevision && layout.tiles && layout.tiles.includes(OLD_VOID as TileTypeVal)) {
     layout = {
       ...layout,
       tiles: layout.tiles.map((t) => (t === OLD_VOID ? (TileType.VOID as TileTypeVal) : t)),

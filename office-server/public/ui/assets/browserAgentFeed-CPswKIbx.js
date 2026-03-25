@@ -1,4 +1,4 @@
-import { n as e } from './browserNotify-B6UDaXAq.js';
+import { n as e } from './browserNotify-Cqk0UwaV.js';
 var t = 1e3,
   n = 3e4,
   r = 5,
@@ -52,7 +52,7 @@ function f(e, t, n) {
     lastActivityAt: c,
     addedAt: c,
   }),
-    u({ type: `agentAdded`, id: o, label: n, projectDir: e }),
+    u({ type: `agentCreated`, id: o, folderName: n }),
     u({ type: `agentStatus`, id: o, status: `waiting` }),
     s(o));
 }

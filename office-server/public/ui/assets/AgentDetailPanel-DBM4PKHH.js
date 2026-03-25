@@ -1,5 +1,5 @@
-import { i as e, n as t, t as n } from './index-CVnfRjxH.js';
-import { getAgentDetail as r, subscribeAgentDetail as i } from './browserAgentFeed-CZF7CW15.js';
+import { i as e, n as t, t as n } from './index-049r_4pa.js';
+import { getAgentDetail as r, subscribeAgentDetail as i } from './browserAgentFeed-CPswKIbx.js';
 var a = e(t(), 1),
   o = n(),
   s = 1e3,

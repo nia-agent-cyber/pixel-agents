@@ -472,9 +472,14 @@ function startFeedWatcher() {
 app.get('/api/layout', async (req, res) => {
   try {
     const data = await fs.promises.readFile(LAYOUT_FILE, 'utf8');
-    res.json(JSON.parse(data));
+    const layout = JSON.parse(data);
+    // Only return layout if it has a valid tiles array; otherwise null → client uses default
+    if (!layout || !Array.isArray(layout.tiles)) {
+      return res.json(null);
+    }
+    res.json(layout);
   } catch {
-    res.json({});
+    res.json(null);
   }
 });
 

@@ -3,9 +3,9 @@ const __vite__mapDeps = (
   m = __vite__mapDeps,
   d = m.f ||
     (m.f = [
-      './AgentDetailPanel-BDLlZDt7.js',
-      './browserAgentFeed-CZF7CW15.js',
-      './browserNotify-B6UDaXAq.js',
+      './AgentDetailPanel-DBM4PKHH.js',
+      './browserAgentFeed-CPswKIbx.js',
+      './browserNotify-Cqk0UwaV.js',
     ]),
 ) => i.map((i) => d[i]);
 var e = Object.create,
@@ -12957,6 +12957,7 @@ function qt(e) {
   if (
     ((e = { ...e, furniture: Gt(e.furniture) }),
     !e.layoutRevision &&
+      e.tiles &&
       e.tiles.includes(8) &&
       (e = { ...e, tiles: e.tiles.map((e) => (e === 8 ? N.VOID : e)) }),
     e.tileColors && e.tileColors.length === e.tiles.length)
@@ -16553,7 +16554,7 @@ var jr = class {
   },
   Ir = S.lazy(() =>
     Fr(
-      () => import(`./AgentDetailPanel-BDLlZDt7.js`).then((e) => ({ default: e.AgentDetailPanel })),
+      () => import(`./AgentDetailPanel-DBM4PKHH.js`).then((e) => ({ default: e.AgentDetailPanel })),
       __vite__mapDeps([0, 1, 2]),
       import.meta.url,
     ),
@@ -16652,7 +16653,7 @@ function Ur() {
       ).then(({ dispatchMockMessages: e }) => e()),
       Fr(
         async () => {
-          let { initBrowserAgentFeed: e } = await import(`./browserAgentFeed-CZF7CW15.js`);
+          let { initBrowserAgentFeed: e } = await import(`./browserAgentFeed-CPswKIbx.js`);
           return { initBrowserAgentFeed: e };
         },
         __vite__mapDeps([1, 2]),
@@ -16660,7 +16661,7 @@ function Ur() {
       ).then(({ initBrowserAgentFeed: e }) => e()),
       Fr(
         async () => {
-          let { requestNotifyPermission: e } = await import(`./browserNotify-B6UDaXAq.js`).then(
+          let { requestNotifyPermission: e } = await import(`./browserNotify-Cqk0UwaV.js`).then(
             (e) => e.t,
           );
           return { requestNotifyPermission: e };

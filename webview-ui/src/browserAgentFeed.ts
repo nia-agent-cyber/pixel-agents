@@ -138,7 +138,8 @@ function onAgentAdded(agentId: string, sessionKey: string, label: string): void 
     lastActivityAt: now,
     addedAt: now,
   });
-  dispatch({ type: 'agentAdded', id: numericId, label, projectDir: agentId });
+  // useExtensionMessages handles 'agentCreated', not 'agentAdded'
+  dispatch({ type: 'agentCreated', id: numericId, folderName: label });
   dispatch({ type: 'agentStatus', id: numericId, status: 'waiting' });
   notifySubscribers(numericId);
 }

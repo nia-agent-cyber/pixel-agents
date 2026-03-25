@@ -1,4 +1,4 @@
-import { r as e } from './index-CVnfRjxH.js';
+import { r as e } from './index-049r_4pa.js';
 var t = e({ notifyAgentIdle: () => r, requestNotifyPermission: () => n });
 async function n() {
   return typeof Notification > `u`
