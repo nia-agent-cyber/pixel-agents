@@ -122,13 +122,60 @@ function EditActionBar({
 
 function App() {
   // Browser runtime (dev or static dist): dispatch mock messages after the
-  // useExtensionMessages listener has been registered.
+  // useExtensionMessages listener has been registered, then restore persisted
+  // layout and seats from the office-server REST API.
   useEffect(() => {
     if (isBrowserRuntime) {
       void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
       void import('./browserAgentFeed.js').then(({ initBrowserAgentFeed }) =>
         initBrowserAgentFeed(),
       );
+
+      // Restore persisted layout and seats from server.
+      // Seats are dispatched first (existingAgents) so they are buffered and
+      // then flushed when the layoutLoaded event arrives.
+      void Promise.all([
+        fetch('/api/layout')
+          .then((r) => r.json() as Promise<unknown>)
+          .catch(() => null),
+        fetch('/api/seats')
+          .then((r) => r.json() as Promise<unknown>)
+          .catch(() => null),
+      ]).then(([layout, seats]) => {
+        // Dispatch persisted seats as existingAgents so characters are placed
+        // at their saved desks when the layout is applied.
+        if (seats !== null && typeof seats === 'object' && !Array.isArray(seats)) {
+          const ids = Object.keys(seats as Record<string, unknown>)
+            .map(Number)
+            .filter((n) => !Number.isNaN(n));
+          if (ids.length > 0) {
+            window.dispatchEvent(
+              new MessageEvent('message', {
+                data: {
+                  type: 'existingAgents',
+                  agents: ids,
+                  agentMeta: seats,
+                  folderNames: {},
+                },
+              }),
+            );
+          }
+        }
+        // Dispatch persisted layout to override the default mock layout.
+        // useExtensionMessages only skips layoutLoaded when the editor has
+        // unsaved changes, so this safely replaces the default on first load.
+        if (
+          layout !== null &&
+          typeof layout === 'object' &&
+          (layout as Record<string, unknown>)['version'] !== undefined
+        ) {
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              data: { type: 'layoutLoaded', layout },
+            }),
+          );
+        }
+      });
     }
   }, []);
 

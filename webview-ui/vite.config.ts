@@ -25,7 +25,8 @@ interface DecodedCache {
 
 function browserMockAssetsPlugin(): Plugin {
   const assetsDir = path.resolve(__dirname, 'public/assets');
-  const distAssetsDir = path.resolve(__dirname, '../dist/webview/assets');
+  // Default: VS Code webview build output; overridden in configResolved for standalone builds
+  let distAssetsDir = path.resolve(__dirname, '../dist/webview/assets');
 
   const cache: DecodedCache = { characters: null, floors: null, walls: null, furniture: null };
 
@@ -38,6 +39,15 @@ function browserMockAssetsPlugin(): Plugin {
 
   return {
     name: 'browser-mock-assets',
+    configResolved(config) {
+      // Resolve output assets dir relative to the Vite project root so it
+      // works for both the default build (../dist/webview) and standalone
+      // builds with --outDir ../office-server/public/ui.
+      const absOutDir = path.isAbsolute(config.build.outDir)
+        ? config.build.outDir
+        : path.resolve(config.root, config.build.outDir);
+      distAssetsDir = path.join(absOutDir, 'assets');
+    },
     configureServer(server) {
       // Strip trailing slash: '/' → '', '/sub/' → '/sub'
       const base = server.config.base.replace(/\/$/, '');

@@ -16,6 +16,8 @@ const PORT = parseInt(process.env.PORT || '3456', 10);
 
 const AGENTS_DIR = path.join(os.homedir(), '.openclaw', 'agents');
 const CREDS_FILE = path.join(os.homedir(), '.openclaw', 'office-credentials.json');
+const LAYOUT_FILE = path.join(os.homedir(), '.openclaw', 'pixel-office-layout.json');
+const SEATS_FILE = path.join(os.homedir(), '.openclaw', 'pixel-office-seats.json');
 const POLL_INTERVAL_MS = 2000;
 const STALE_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — no new bytes → agentRemoved
 const FEED_SCAN_MS = 5000; // 5s polling fallback for directory scan
@@ -79,6 +81,12 @@ function basicAuth(req, res, next) {
 }
 
 app.use(basicAuth);
+app.use(express.json());
+
+// ── Standalone UI (M7) ────────────────────────────────────────────────────────
+// Serve the standalone Vite build from public/ui/ behind basicAuth.
+// Must be declared before API routes so static assets are matched first.
+app.use('/ui', express.static(path.join(__dirname, 'public/ui')));
 
 // ── JSONL Parser ──────────────────────────────────────────────────────────────
 
@@ -453,6 +461,44 @@ function startFeedWatcher() {
     // agents dir doesn't exist yet; periodic scan will catch new sessions
   }
 }
+
+// ── Layout & Seats Persistence (M7) ──────────────────────────────────────────
+
+app.get('/api/layout', async (req, res) => {
+  try {
+    const data = await fs.promises.readFile(LAYOUT_FILE, 'utf8');
+    res.json(JSON.parse(data));
+  } catch {
+    res.json({});
+  }
+});
+
+app.put('/api/layout', async (req, res) => {
+  try {
+    await fs.promises.writeFile(LAYOUT_FILE, JSON.stringify(req.body), 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/seats', async (req, res) => {
+  try {
+    const data = await fs.promises.readFile(SEATS_FILE, 'utf8');
+    res.json(JSON.parse(data));
+  } catch {
+    res.json({});
+  }
+});
+
+app.put('/api/seats', async (req, res) => {
+  try {
+    await fs.promises.writeFile(SEATS_FILE, JSON.stringify(req.body), 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 // ── REST API ──────────────────────────────────────────────────────────────────
 
