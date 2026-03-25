@@ -126,6 +126,9 @@ function App() {
   useEffect(() => {
     if (isBrowserRuntime) {
       void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
+      void import('./browserAgentFeed.js').then(({ initBrowserAgentFeed }) =>
+        initBrowserAgentFeed(),
+      );
     }
   }, []);
 

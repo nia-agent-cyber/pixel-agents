@@ -17,6 +17,9 @@ const PORT = parseInt(process.env.PORT || '3456', 10);
 const AGENTS_DIR = path.join(os.homedir(), '.openclaw', 'agents');
 const CREDS_FILE = path.join(os.homedir(), '.openclaw', 'office-credentials.json');
 const POLL_INTERVAL_MS = 2000;
+const STALE_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — no new bytes → agentRemoved
+const FEED_SCAN_MS = 5000; // 5s polling fallback for directory scan
+const FEED_HEARTBEAT_MS = 15000; // 15s heartbeat comment on SSE connection
 
 // ── Basic Auth ────────────────────────────────────────────────────────────────
 
@@ -222,6 +225,235 @@ function scanAgents() {
   return agents;
 }
 
+// ── Live Agent Feed (M6) ──────────────────────────────────────────────────────
+//
+// Broadcasts events from all active OpenClaw sessions to every connected
+// /api/agents/events SSE client.  One reader per session (shared state),
+// multiplexed to N clients.
+
+/** Set of all open /api/agents/events SSE responses */
+const feedClients = new Set();
+
+/**
+ * Map<"agentId:sessionKey", { agentId, sessionKey }>
+ * Sessions currently considered active (not yet stale-expired).
+ */
+const knownSessions = new Map();
+
+/**
+ * Map<"agentId:sessionKey", {
+ *   lastByteMs: number,
+ *   staleTimer: NodeJS.Timeout|null,
+ *   offset: number,
+ *   lineBuffer: string,
+ *   watcher: fs.FSWatcher|null,
+ *   pollTimer: NodeJS.Timeout|null
+ * }>
+ */
+const activeSessions = new Map();
+
+let feedDirWatcher = null;
+let feedScanTimer = null;
+
+function broadcastFeedEvent(data) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of feedClients) {
+    res.write(payload);
+  }
+}
+
+function resetStaleTimer(agentId, sessionKey) {
+  const key = `${agentId}:${sessionKey}`;
+  const state = activeSessions.get(key);
+  if (!state) return;
+  if (state.staleTimer) clearTimeout(state.staleTimer);
+  state.staleTimer = setTimeout(() => {
+    broadcastFeedEvent({ type: 'agentRemoved', agentId, sessionKey });
+    stopSessionFeed(agentId, sessionKey);
+    knownSessions.delete(key);
+  }, STALE_TIMEOUT_MS);
+}
+
+function pollSessionFeed(agentId, sessionKey) {
+  const key = `${agentId}:${sessionKey}`;
+  const state = activeSessions.get(key);
+  if (!state) return;
+
+  const filePath = path.join(AGENTS_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
+  try {
+    const stat = fs.statSync(filePath);
+    if (stat.size <= state.offset) return;
+
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(stat.size - state.offset);
+    fs.readSync(fd, buf, 0, buf.length, state.offset);
+    fs.closeSync(fd);
+    state.offset = stat.size;
+    state.lastByteMs = Date.now();
+
+    const chunk = state.lineBuffer + buf.toString('utf8');
+    const parts = chunk.split('\n');
+    state.lineBuffer = parts.pop() || '';
+
+    for (const rawLine of parts) {
+      if (!rawLine.trim()) continue;
+      try {
+        const entry = JSON.parse(rawLine);
+        if (entry.type !== 'message') continue;
+        const msg = entry.message;
+        if (!msg) continue;
+
+        if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+          for (const block of msg.content) {
+            if (block.type === 'tool_use') {
+              let inputStr = '';
+              if (block.input) {
+                const inp = block.input;
+                inputStr =
+                  inp.command ||
+                  inp.file_path ||
+                  inp.path ||
+                  inp.query ||
+                  inp.url ||
+                  inp.message ||
+                  inp.action ||
+                  JSON.stringify(inp).slice(0, 80);
+              }
+              broadcastFeedEvent({
+                type: 'toolStart',
+                agentId,
+                sessionKey,
+                tool: mapToolName(block.name),
+                input: inputStr,
+                toolCallId: block.id,
+                timestamp: entry.timestamp,
+              });
+              resetStaleTimer(agentId, sessionKey);
+            } else if (block.type === 'text' && block.text) {
+              broadcastFeedEvent({
+                type: 'text',
+                agentId,
+                sessionKey,
+                text: block.text.slice(0, 300),
+                timestamp: entry.timestamp,
+              });
+              resetStaleTimer(agentId, sessionKey);
+            }
+          }
+        } else if (msg.role === 'toolResult' || msg.role === 'tool') {
+          broadcastFeedEvent({
+            type: 'toolDone',
+            agentId,
+            sessionKey,
+            toolCallId: msg.toolCallId || msg.tool_call_id,
+            timestamp: entry.timestamp,
+          });
+          resetStaleTimer(agentId, sessionKey);
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+  } catch {
+    // file may not exist yet
+  }
+}
+
+function startSessionFeed(agentId, sessionKey) {
+  const key = `${agentId}:${sessionKey}`;
+  if (activeSessions.has(key)) return;
+
+  const filePath = path.join(AGENTS_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
+  const state = {
+    lastByteMs: Date.now(),
+    staleTimer: null,
+    offset: 0,
+    lineBuffer: '',
+    watcher: null,
+    pollTimer: null,
+  };
+  activeSessions.set(key, state);
+
+  // fs.watch for low-latency delivery
+  try {
+    const watcher = fs.watch(filePath, () => {
+      pollSessionFeed(agentId, sessionKey);
+    });
+    watcher.on('error', () => {
+      /* ignore — 5s poll fallback handles it */
+    });
+    state.watcher = watcher;
+  } catch {
+    // fs.watch unavailable; rely on polling
+  }
+
+  // 5s polling fallback (always active as belt-and-suspenders)
+  state.pollTimer = setInterval(() => pollSessionFeed(agentId, sessionKey), FEED_SCAN_MS);
+
+  // Start stale timer from now
+  resetStaleTimer(agentId, sessionKey);
+
+  // Initial read from current EOF (don't replay history — clients only get live events)
+  try {
+    const stat = fs.statSync(filePath);
+    state.offset = stat.size;
+  } catch {
+    // file doesn't exist yet; offset stays at 0
+  }
+}
+
+function stopSessionFeed(agentId, sessionKey) {
+  const key = `${agentId}:${sessionKey}`;
+  const state = activeSessions.get(key);
+  if (!state) return;
+  if (state.staleTimer) clearTimeout(state.staleTimer);
+  if (state.watcher) {
+    try {
+      state.watcher.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  activeSessions.delete(key);
+}
+
+function scanForNewSessions() {
+  const sessions = scanAgents();
+  for (const s of sessions) {
+    const key = `${s.agentId}:${s.sessionKey}`;
+    if (knownSessions.has(key)) continue;
+    knownSessions.set(key, { agentId: s.agentId, sessionKey: s.sessionKey });
+    broadcastFeedEvent({
+      type: 'agentAdded',
+      agentId: s.agentId,
+      sessionKey: s.sessionKey,
+      label: s.agentId,
+    });
+    startSessionFeed(s.agentId, s.sessionKey);
+  }
+}
+
+function startFeedWatcher() {
+  // Scan existing sessions immediately
+  scanForNewSessions();
+
+  // Periodic scan fallback for new sessions
+  feedScanTimer = setInterval(scanForNewSessions, FEED_SCAN_MS);
+
+  // fs.watch on agents dir for faster detection of new sessions
+  try {
+    feedDirWatcher = fs.watch(AGENTS_DIR, { recursive: true }, () => {
+      scanForNewSessions();
+    });
+    feedDirWatcher.on('error', () => {
+      /* ignore — periodic scan fallback handles it */
+    });
+  } catch {
+    // agents dir doesn't exist yet; periodic scan will catch new sessions
+  }
+}
+
 // ── REST API ──────────────────────────────────────────────────────────────────
 
 app.get('/api/agents', (req, res) => {
@@ -266,6 +498,36 @@ app.get('/api/agents/:agentId/sessions/:sessionKey', (req, res) => {
 
   const { sessionInfo, events } = parseJsonlFile(filePath);
   res.json({ sessionInfo, events });
+});
+
+// SSE endpoint — multiplexed live feed from ALL active sessions (M6)
+// MUST be declared before /api/agents/:agentId/sessions/:sessionKey/events to avoid
+// Express routing collision (Express matches in order; without this, 'events' would
+// be captured by :agentId).
+app.get('/api/agents/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  feedClients.add(res);
+
+  // Replay agentAdded for all currently-known sessions to this new client
+  for (const { agentId, sessionKey } of knownSessions.values()) {
+    res.write(
+      `data: ${JSON.stringify({ type: 'agentAdded', agentId, sessionKey, label: agentId })}\n\n`,
+    );
+  }
+
+  // Heartbeat comment every 15s to keep the connection alive
+  const heartbeatInterval = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, FEED_HEARTBEAT_MS);
+
+  req.on('close', () => {
+    feedClients.delete(res);
+    clearInterval(heartbeatInterval);
+  });
 });
 
 // SSE endpoint — streams live events from a session file
@@ -396,4 +658,7 @@ app.listen(PORT, '127.0.0.1', () => {
       `[pixel-office] WARNING: No credentials found at ${CREDS_FILE} — all requests will be denied`,
     );
   }
+  // Start live-agent-feed watcher (M6)
+  startFeedWatcher();
+  console.log('[pixel-office] Live agent feed active on /api/agents/events');
 });
