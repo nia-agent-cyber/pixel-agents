@@ -1,12 +1,12 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 5 (M6 QA APPROVED)
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 5 (M7 COMPLETE)
 
 ---
 
-## Current State: ✅ M6 QA APPROVED — Browser SSE bridge verified; ready for M7 (standalone deploy)
+## Current State: ✅ M7 COMPLETE — Standalone build ships to office-server; layout + seats persist across browser sessions
 
 ---
 
@@ -229,6 +229,51 @@ Browser SSE bridge implemented end-to-end. Real OpenClaw agents now appear as an
    already routes `office.niavoice.org → localhost:3456`. Update any launchd plist env if needed.
 
 5. **`README.md` update**: document the standalone build + deploy steps.
+
+---
+
+## Sprint 5 (M7) — pixel-coder, 2026-03-25
+
+### Summary
+
+Standalone build + layout/seats persistence fully implemented. The pixel office can now be built as a self-contained static app and served directly from the office-server at `/ui/`. Layout and agent seats survive browser restarts via the server-side REST API.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `webview-ui/package.json` | Added `build:standalone` script: `vite build --outDir ../office-server/public/ui --emptyOutDir` |
+| `webview-ui/vite.config.ts` | Added `configResolved` hook to `browserMockAssetsPlugin` — dynamically resolves `distAssetsDir` from the Vite output dir so JSON metadata files land in the correct `assets/` subdirectory for both default and standalone builds |
+| `office-server/server.js` | Added `LAYOUT_FILE` + `SEATS_FILE` constants; `express.json()` middleware; `app.use('/ui', express.static(...))` behind `basicAuth`; `GET/PUT /api/layout` + `GET/PUT /api/seats` persistence endpoints using `fs.promises` |
+| `webview-ui/src/vscodeApi.ts` | Browser mock intercepts `saveLayout` → `PUT /api/layout` and `saveAgentSeats` → `PUT /api/seats`; other messages still logged to console |
+| `webview-ui/src/App.tsx` | Browser runtime `useEffect` fetches `/api/layout` + `/api/seats` on init; dispatches `existingAgents` (seats) then `layoutLoaded` (layout) to restore persisted state |
+| `office-server/public/ui/` | **New** — standalone build artifact (committed for deploy) |
+
+### Implementation notes
+
+**`vite.config.ts` — `configResolved` hook**
+Added a `let distAssetsDir` closure variable (replaces the old `const`). The new `configResolved(config)` hook resolves `config.build.outDir` (which changes when `--outDir` CLI flag is used) to an absolute path and sets `distAssetsDir`. This ensures `furniture-catalog.json` and `asset-index.json` land in `office-server/public/ui/assets/` during `build:standalone`, not in the old `dist/webview/assets/` path.
+
+**`office-server/server.js` — persistence endpoints**
+- `express.json()` middleware added immediately after `basicAuth` to enable JSON body parsing for PUT routes.
+- `/ui` static route declared BEFORE API routes (but after `basicAuth`) so assets are served efficiently without touching Express routing logic.
+- `PUT /api/layout` and `PUT /api/seats` write JSON body to `~/.openclaw/pixel-office-{layout,seats}.json` using `fs.promises.writeFile`.
+- `GET /api/layout` returns `{}` on ENOENT; `GET /api/seats` returns `{}` on ENOENT (object format mirrors the `saveAgentSeats` payload shape).
+
+**`vscodeApi.ts` — browser intercept**
+The browser mock `postMessage` now pattern-matches on `msg.type` using a safe `Record<string, unknown>` cast (TypeScript-compliant, no `any`). `saveLayout` and `saveAgentSeats` trigger fire-and-forget `fetch` PUTs; all other types fall through to console logging.
+
+**`App.tsx` — init restore**
+`Promise.all([fetch('/api/layout'), fetch('/api/seats')])` runs immediately in the `isBrowserRuntime` useEffect. Seats are dispatched as `existingAgents` FIRST (so they buffer in `pendingAgents`), then layout is dispatched as `layoutLoaded` SECOND (which flushes buffered agents with their palette/seatId, then applies the persisted layout). This ordering ensures agents are placed at their saved desks when the layout renders.
+
+### Build
+
+`npm run build` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
+`npm run build:standalone` — **✅ output confirmed** at `office-server/public/ui/`
+
+### Commit
+
+`2b8cab1` — `feat: M7 standalone build + layout persistence for web pixel office`
 
 ---
 
@@ -949,6 +994,15 @@ Functionally correct (openclaw agents have `undefined` terminalRef, never matche
 - [x] **M3**: `src/openclawTranscriptParser.ts` — OpenClaw JSONL parser (2026-03-24)
 - [x] **M3**: `OPENCLAW_IDLE_DELAY_MS` constant added to `src/constants.ts`
 - [x] **M3**: `npm run build` passes clean — zero type errors, zero lint warnings
+- [x] **M4**: `src/openclawWatcher.ts` — directory scanner + webview bridge (2026-03-24)
+- [x] **M5**: Persistence guards + extension wiring — OpenClaw agents survive VS Code restarts (2026-03-24)
+- [x] **M6**: `office-server/server.js` `/api/agents/events` SSE multiplexed live feed (2026-03-25)
+- [x] **M6**: `webview-ui/src/browserAgentFeed.ts` — SSE client with agent tracking + exponential backoff (2026-03-25)
+- [x] **M7**: `webview-ui/package.json` `build:standalone` script — outputs to `office-server/public/ui/` (2026-03-25)
+- [x] **M7**: `office-server/server.js` `/ui` static file serving behind basicAuth (2026-03-25)
+- [x] **M7**: `office-server/server.js` `GET/PUT /api/layout` + `GET/PUT /api/seats` persistence (2026-03-25)
+- [x] **M7**: `webview-ui/src/vscodeApi.ts` intercepts `saveLayout`/`saveAgentSeats` → PUT to API in browser runtime (2026-03-25)
+- [x] **M7**: `webview-ui/src/App.tsx` restores layout + seats from API on browser init (2026-03-25)
 
 ---
 
