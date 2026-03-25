@@ -1,8 +1,89 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-qa (Sprint 6 QA re-review)  
-**Current sprint:** Sprint 6 — M8 + M9 APPROVED — Sprint 7 unblocked
+**Updated by:** pixel-coder (Sprint 7 — M10 + M11 complete)  
+**Current sprint:** Sprint 7 — M10 + M11 COMPLETE — Sprint 8 unblocked
+
+---
+
+## Current State: ✅ SPRINT 7 COMPLETE — M10 (upstream PR branch) + M11 (browser notifications) DONE
+
+---
+
+## Sprint 7 — M10 + M11 (pixel-coder, 2026-03-25)
+
+### Summary
+
+M10 (upstream PR prep) and M11 (browser push notifications) implemented and pushed.
+
+### M10 — Upstream PR branch
+
+- Added `upstream` remote: `https://github.com/pablodelucca/pixel-agents.git`
+- Fetched upstream — 5 divergent upstream commits identified
+- Created `feature/openclaw-adapter` branch from current `main`
+- Cleaned the branch for upstream contribution:
+  - Removed internal team files (`PROTOCOL.md`, `STATUS.md`, `DECISIONS.md`)
+  - Genericized `README.md`: replaced `nia-agent-cyber/pixel-agents` clone URLs with `pablodelucca/pixel-agents`, removed `office.niavoice.org` personal references
+- Pushed `feature/openclaw-adapter` to `nia-agent-cyber/pixel-agents` origin
+- **PR NOT opened yet** — branch ready at: https://github.com/nia-agent-cyber/pixel-agents/pull/new/feature/openclaw-adapter
+
+**Proposed PR description:**
+
+---
+**Title:** feat: OpenClaw adapter — native `~/.openclaw/agents/` support + standalone web office
+
+**Summary:**
+This PR adds native support for [OpenClaw](https://openclaw.ai) agents to Pixel Agents, without modifying OpenClaw itself.
+
+**What's new:**
+
+- `src/openclawTranscriptParser.ts` — JSONL parser for OpenClaw's `pi-coding-agent` session format; emits the same webview message protocol as the Claude Code parser
+- `src/openclawWatcher.ts` — watches `~/.openclaw/agents/*/sessions/` for new/active sessions; auto-discovers running agents
+- `src/types.ts` — `source: 'claude-code' | 'openclaw'` discriminator on `AgentState`; `terminalRef` is now optional (OpenClaw has no terminal)
+- `src/agentManager.ts` — source-gating at terminal-specific call sites; OpenClaw agents skip terminal operations cleanly
+- `src/extension.ts` — wires `startOpenClawWatcher` into the extension lifecycle via `context.subscriptions`
+- `office-server/` — standalone Express.js server that serves the pixel office UI at `/ui/`, streams live OpenClaw agent events via SSE (`/api/agents/events`), and persists layout/seats across browser sessions
+- `webview-ui/src/browserAgentFeed.ts` — SSE client; drives the pixel-office event bus from the live feed with automatic exponential-backoff reconnection
+- `webview-ui/src/browserNotify.ts` — browser Notification API integration; alerts user when an agent goes idle (background-tab friendly)
+- `webview-ui/src/App.tsx` — browser runtime init (feed + notifications); `AgentDetailPanel` lazy-loaded for browser only
+- `webview-ui/src/components/AgentDetailPanel.tsx` — click-to-inspect overlay with label, status badge, recent tools, time since last activity
+- `webview-ui/vite.config.ts` + `package.json` — `build:standalone` script for the web office build
+
+**Architecture decisions (key):**
+- Zero changes to OpenClaw — we read its native JSONL format as an observer
+- Separate parser/watcher files keep upstream `transcriptParser.ts` / `fileWatcher.ts` untouched
+- Single `AgentState` type with `source` discriminator (not a separate union type)
+- Tool name mapping via lookup table (`exec` → `Bash`, etc.) for animation compatibility
+- OpenClaw agents persisted by `agentId + sessionKey` (not terminal name)
+- `office-server` is macOS-first (Phase 1); Windows/Linux is Phase 2
+
+**Upstream divergence:** Our `main` is ~26 commits ahead of upstream. Rebase on `upstream/main` and conflict resolution (primarily around `1689f7c feat: improve seating, sub-agent spawning, and background agent support`) is planned before the PR is formally opened.
+---
+
+### M11 — Browser push notifications
+
+- Created `webview-ui/src/browserNotify.ts`:
+  - `requestNotifyPermission()` — requests `Notification` permission; returns `true` if granted
+  - `notifyAgentIdle(agentId, label?)` — fires "Pixel Office / {label} is idle" notification; guards on `document.hidden`/`!document.hasFocus()` and `typeof Notification`
+- Modified `webview-ui/src/browserAgentFeed.ts`:
+  - Static import of `notifyAgentIdle` from `./browserNotify.js`
+  - `onToolDone` — calls `notifyAgentIdle` when `pendingTools.size === 0` (active → waiting)
+  - `onAgentRemoved` — calls `notifyAgentIdle` when `wasActive` (captures status before removal)
+- Modified `webview-ui/src/App.tsx`:
+  - Dynamic import of `requestNotifyPermission` in `isBrowserRuntime` useEffect, after `initBrowserAgentFeed()`
+- Both builds pass clean:
+  - `npm run build` — ✅ zero errors, zero warnings
+  - `npm run build:standalone` — ✅ zero errors, zero warnings
+- `browserNotify-B6UDaXAq.js` emitted as own code-split chunk in both builds (0.49 kB gzip: 0.29 kB)
+
+### Commits
+
+- `8b07f90` — `feat: M11 browser push notifications — agent idle alerts`
+- `e1017b6` — `chore: M10 upstream PR prep — remove internal team files, genericize README URLs` (on `feature/openclaw-adapter`)
+
+### Status: ✅ SPRINT 7 COMPLETE
+
+Sprint 8 (M12 — session transcript viewer) is unblocked.
 
 ---
 
