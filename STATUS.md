@@ -1,8 +1,149 @@
 # STATUS.md — pixel-bridge Project Status
 
-**Last updated:** 2026-03-24  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 4 (M5 COMPLETE — QA APPROVED)
+**Last updated:** 2026-03-25  
+**Updated by:** pixel-pm  
+**Current sprint:** Sprint 5 (M6 IN PROGRESS — Pixel Coder spawned)
+
+---
+
+## Current State: 🚧 M6 IN PROGRESS — Browser SSE bridge (web pixel office, live agent feed)
+
+---
+
+## Sprint 5 (M6) — Live Agent Feed (browser SSE bridge)
+
+**Goal:** Real OpenClaw agents appear as animated pixel characters in the standalone browser pixel office. No VS Code required.
+
+### Deliverables
+
+#### 1. `office-server/server.js` — new `/api/agents/events` SSE endpoint
+
+- Watches `~/.openclaw/agents/` for new/stale sessions using `fs.watch` + 5 s polling fallback
+- Emits `agentAdded` when a new JSONL session file appears:
+  `data: { type: 'agentAdded', agentId, sessionKey, label }`
+- Emits `agentRemoved` when a session has had no new bytes for >5 min:
+  `data: { type: 'agentRemoved', agentId, sessionKey }`
+- Multiplexes `toolStart`, `toolDone`, `text` events from all active sessions into this single stream.
+  Each event includes `agentId` and `sessionKey` fields so the client can route correctly.
+- Heartbeat comment (`\: heartbeat\n\n`) every 15 s.
+- **Critical:** declare this route BEFORE `/api/agents/:agentId/sessions/:sessionKey/events`
+  to avoid Express routing collision — Express matches routes in order; `/api/agents/events`
+  would otherwise be captured by the `:agentId` param as `agentId='events'`.
+- Stale-session tracking: module-level `Map<string, { lastByte: number; timer: NodeJS.Timeout }>`.
+  On every `toolStart`/`toolDone`/`text` event for an `agentId:sessionKey`, reset the 5-min timer.
+
+#### 2. `webview-ui/src/browserAgentFeed.ts` — new file
+
+```typescript
+export function initBrowserAgentFeed(): void
+```
+
+- Opens SSE connection to `/api/agents/events` (relative URL — works both in Vite dev and production).
+- Maintains `activeAgents: Map<string, { numericId: number }>` keyed by `"${agentId}:${sessionKey}"`.
+- Assigns sequential numeric IDs starting at 1 (browser-local, not persisted).
+- Per-agent pending tool map: `Map<agentKey, Map<toolCallId | toolName, string>>` for toolId correlation.
+
+**Event handlers:**
+
+| SSE `type` | Action |
+|---|---|
+| `agentAdded` | Assign numericId; dispatch `agentAdded` + `agentStatus: waiting` |
+| `agentRemoved` | Dispatch `agentStatus: removed` (if not supported, skip); remove from map |
+| `toolStart` | Dispatch `agentToolStart` + `agentStatus: active` |
+| `toolDone` | Look up toolId via toolCallId; dispatch `agentToolDone`; if no pending tools → dispatch `agentStatus: waiting` |
+| `text` | Dispatch `agentStatus: active` |
+
+**agentAdded dispatch shape:**
+```typescript
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentAdded', id: numericId, label: agentId, projectDir: agentId }
+}));
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentStatus', id: numericId, status: 'waiting' }
+}));
+```
+
+**agentToolStart dispatch shape:**
+```typescript
+const toolId = `feed-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+// store in pendingTools map keyed by toolCallId (or tool name as fallback)
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentToolStart', id: numericId, toolId, status: `${tool}${input ? ': ' + input.slice(0, 60) : ''}` }
+}));
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentStatus', id: numericId, status: 'active' }
+}));
+```
+
+**agentToolDone dispatch shape:**
+```typescript
+// retrieve toolId from pendingTools, fallback to a stable string if not found
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentToolDone', id: numericId, toolId }
+}));
+// if pendingToolCount === 0:
+window.dispatchEvent(new MessageEvent('message', {
+  data: { type: 'agentStatus', id: numericId, status: 'waiting' }
+}));
+```
+
+- SSE error / connection close: retry with exponential backoff starting at 1 s, max 30 s.
+- All dispatches use `window.dispatchEvent(new MessageEvent('message', { data: payload }))`.
+
+#### 3. `webview-ui/src/App.tsx` — wire in browserAgentFeed
+
+In the existing `useEffect` block (line ~127) where `isBrowserRuntime` is checked:
+```typescript
+useEffect(() => {
+  if (isBrowserRuntime) {
+    void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
+    void import('./browserAgentFeed.js').then(({ initBrowserAgentFeed }) => initBrowserAgentFeed());
+  }
+}, []);
+```
+
+### TypeScript constraints (from PROTOCOL.md)
+
+- No `enum` — use `as const` objects
+- `import type` for type-only imports
+- `noUnusedLocals` / `noUnusedParameters` strict
+- All magic numbers → constants in the file (not inline)
+- Must pass `npm run build` clean (tsc + eslint + esbuild + vite, zero errors/warnings)
+
+### Acceptance Criteria
+
+- `npm run build` passes clean
+- `node office-server/server.js` starts without errors
+- `/api/agents/events` SSE stream emits `agentAdded` for active sessions on connect
+- Browser at `http://localhost:5173` (Vite dev) with a live OpenClaw session: pixel character appears and animates when tools run
+- No VS Code dependency required
+
+---
+
+## Sprint 5 (M7) — Standalone Build & Deploy *(after M6 QA)*
+
+**Goal:** Deploy the pixel office as a standalone static web app at `office.niavoice.org/ui/`
+
+### Deliverables
+
+1. **`webview-ui/vite.config.ts`** — add standalone build mode:
+   - `base: '/ui/'`, `outDir: '../office-server/public/ui'`
+   - `webview-ui/package.json` gets a `build:standalone` script
+
+2. **`office-server/server.js`** — serve `/ui/*` as static files behind `basicAuth`:
+   - `app.use('/ui', express.static(path.join(__dirname, 'public/ui')))`
+
+3. **Persistence (browser runtime)**:
+   - `vscodeApi.ts` (or a new `browserApi.ts`) — intercept `saveLayout` and `saveAgentSeats`
+     postMessages in browser runtime → send as `PUT /api/layout` and `PUT /api/seats`
+   - `office-server/server.js` — `PUT /api/layout` writes `~/.openclaw/pixel-office-layout.json`;
+     `PUT /api/seats` writes `~/.openclaw/pixel-office-seats.json`;
+     `GET /api/layout` and `GET /api/seats` return stored JSON
+
+4. **Cloudflare tunnel / launchd**: no port change needed (port 3456 stays). Cloudflare tunnel
+   already routes `office.niavoice.org → localhost:3456`. Update any launchd plist env if needed.
+
+5. **`README.md` update**: document the standalone build + deploy steps.
 
 ---
 
