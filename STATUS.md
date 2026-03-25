@@ -81,9 +81,34 @@ This PR adds native support for [OpenClaw](https://openclaw.ai) agents to Pixel 
 - `8b07f90` — `feat: M11 browser push notifications — agent idle alerts`
 - `e1017b6` — `chore: M10 upstream PR prep — remove internal team files, genericize README URLs` (on `feature/openclaw-adapter`)
 
-### Status: ✅ SPRINT 7 COMPLETE
+### Status: ✅ SPRINT 7 COMPLETE — QA APPROVED 2026-03-25
 
 Sprint 8 (M12 — session transcript viewer) is unblocked.
+
+---
+
+## QA Review — commits 8b07f90, e1017b6, 4a44279 (pixel-qa, 2026-03-25)
+
+### Verdict: ✅ APPROVED — Sprint 7 QA approved (M10+M11)
+
+All M11 and M10 checks pass. Both builds clean.
+
+| Check | Result |
+|-------|--------|
+| `browserNotify.ts` exists; `requestNotifyPermission()` guards `typeof Notification === 'undefined'`; returns bool | ✅ PASS |
+| `notifyAgentIdle(agentId, label?)` guards on `typeof Notification` + `document.hidden \|\| !document.hasFocus()` | ✅ PASS |
+| `browserAgentFeed.ts` — `notifyAgentIdle` called in `onToolDone` when `pendingTools.size === 0` | ✅ PASS |
+| `browserAgentFeed.ts` — `notifyAgentIdle` called in `onAgentRemoved` when `wasActive` (captures status before removal) | ✅ PASS |
+| `App.tsx` — dynamic import of `requestNotifyPermission` in `isBrowserRuntime` useEffect after `initBrowserAgentFeed()` | ✅ PASS |
+| `browserNotify-B6UDaXAq.js` emitted as own code-split chunk in both builds (0.49 kB gzip: 0.29 kB) | ✅ PASS |
+| VS Code path fully guarded — no Notification API call without `typeof` guard | ✅ PASS |
+| `origin/feature/openclaw-adapter` branch exists | ✅ PASS |
+| Branch tree: PROTOCOL.md, STATUS.md, DECISIONS.md absent | ✅ PASS |
+| README.md on branch: no `nia-agent-cyber` clone URLs, no `office.niavoice.org` references | ✅ PASS |
+| STATUS.md on main contains full PR description draft | ✅ PASS |
+| STATUS.md notes rebase on `upstream/main` required before opening PR | ✅ PASS |
+| `npm run build` — tsc + eslint + esbuild + vite, zero errors, zero warnings | ✅ PASS |
+| `npm run build:standalone` — zero errors, zero warnings, output at `office-server/public/ui/` | ✅ PASS |
 
 ---
 
