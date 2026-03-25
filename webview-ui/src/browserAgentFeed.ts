@@ -201,6 +201,7 @@ function onText(agentId: string, sessionKey: string): void {
   const entry = activeAgents.get(key);
   if (!entry) return;
   // Update detail store (M8)
+  entry.status = 'active';
   entry.lastActivityAt = Date.now();
   dispatch({ type: 'agentStatus', id: entry.numericId, status: 'active' });
   notifySubscribers(entry.numericId);

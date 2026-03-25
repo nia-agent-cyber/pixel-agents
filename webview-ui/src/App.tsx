@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { AgentDetailPanel } from './components/AgentDetailPanel.js';
+const AgentDetailPanel = React.lazy(() =>
+  import('./components/AgentDetailPanel.js').then((m) => ({ default: m.AgentDetailPanel })),
+);
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { DebugView } from './components/DebugView.js';
 import { ZoomControls } from './components/ZoomControls.js';
@@ -435,7 +437,9 @@ function App() {
 
       {/* M8: Agent detail panel — browser runtime only */}
       {isBrowserRuntime && selectedAgentId !== null && (
-        <AgentDetailPanel agentId={selectedAgentId} onClose={() => setSelectedAgentId(null)} />
+        <React.Suspense fallback={null}>
+          <AgentDetailPanel agentId={selectedAgentId} onClose={() => setSelectedAgentId(null)} />
+        </React.Suspense>
       )}
 
       {showMigrationNotice && (

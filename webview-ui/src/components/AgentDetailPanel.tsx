@@ -242,7 +242,7 @@ export function AgentDetailPanel({ agentId, onClose }: AgentDetailPanelProps) {
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
               {toolsList.map((tool, i) => (
                 <li
-                  key={i}
+                  key={`${i}-${tool.slice(0, 20)}`}
                   style={{
                     fontSize: 12,
                     color: i === 0 ? '#cdd6f4' : '#585b70',
