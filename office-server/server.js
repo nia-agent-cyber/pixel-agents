@@ -191,6 +191,23 @@ function parseJsonlFile(filePath) {
 
 // ── Session Scanner ────────────────────────────────────────────────────────────
 
+// Load sessionId → label map from sessions.json (OpenClaw subagent labels)
+function loadSessionLabels(agentId) {
+  try {
+    const p = path.join(AGENTS_DIR, agentId, 'sessions', 'sessions.json');
+    const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const labels = {};
+    for (const meta of Object.values(data)) {
+      if (meta.sessionId && meta.label) {
+        labels[meta.sessionId] = meta.label;
+      }
+    }
+    return labels;
+  } catch {
+    return {};
+  }
+}
+
 function scanAgents() {
   const agents = [];
   try {
@@ -202,6 +219,7 @@ function scanAgents() {
     for (const agentId of agentDirs) {
       const sessionsDir = path.join(AGENTS_DIR, agentId, 'sessions');
       try {
+        const sessionLabels = loadSessionLabels(agentId);
         const sessionFiles = fs
           .readdirSync(sessionsDir)
           .filter((f) => f.endsWith('.jsonl'))
@@ -214,9 +232,11 @@ function scanAgents() {
 
         for (const sf of sessionFiles) {
           const sessionKey = sf.file.replace('.jsonl', '');
+          const label = sessionLabels[sessionKey] || agentId;
           agents.push({
             agentId,
             sessionKey,
+            label,
             mtime: sf.mtime.toISOString(),
             size: sf.size,
             filePath: sf.filePath,
@@ -401,10 +421,11 @@ function startSessionFeed(agentId, sessionKey) {
   // Start stale timer from now
   resetStaleTimer(agentId, sessionKey);
 
-  // Initial read from current EOF (don't replay history — clients only get live events)
+  // Replay last 8KB to surface current tool state; then continue from there live
+  const REPLAY_BYTES = 8 * 1024;
   try {
     const stat = fs.statSync(filePath);
-    state.offset = stat.size;
+    state.offset = Math.max(0, stat.size - REPLAY_BYTES);
   } catch {
     // file doesn't exist yet; offset stays at 0
   }
@@ -436,12 +457,16 @@ function scanForNewSessions() {
     if (new Date(s.mtime).getTime() < cutoff) continue;
     const key = `${s.agentId}:${s.sessionKey}`;
     if (knownSessions.has(key)) continue;
-    knownSessions.set(key, { agentId: s.agentId, sessionKey: s.sessionKey });
+    knownSessions.set(key, {
+      agentId: s.agentId,
+      sessionKey: s.sessionKey,
+      label: s.label || s.agentId,
+    });
     broadcastFeedEvent({
       type: 'agentAdded',
       agentId: s.agentId,
       sessionKey: s.sessionKey,
-      label: s.agentId,
+      label: s.label || s.agentId,
     });
     startSessionFeed(s.agentId, s.sessionKey);
   }
@@ -573,9 +598,9 @@ app.get('/api/agents/events', (req, res) => {
     const colonIdx = key.indexOf(':');
     const agentId = key.slice(0, colonIdx);
     const sessionKey = key.slice(colonIdx + 1);
-    res.write(
-      `data: ${JSON.stringify({ type: 'agentAdded', agentId, sessionKey, label: agentId })}\n\n`,
-    );
+    const known = knownSessions.get(key);
+    const label = known?.label || agentId;
+    res.write(`data: ${JSON.stringify({ type: 'agentAdded', agentId, sessionKey, label })}\n\n`);
   }
 
   // Heartbeat comment every 15s to keep the connection alive
