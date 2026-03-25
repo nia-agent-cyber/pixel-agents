@@ -1,12 +1,54 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 5 (M7 COMPLETE)
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 5 (M7 QA APPROVED)
 
 ---
 
-## Current State: ✅ M7 COMPLETE — Standalone build ships to office-server; layout + seats persist across browser sessions
+## Current State: ✅ M7 QA APPROVED — Web pixel office ready; standalone build + layout persistence confirmed
+
+---
+
+## QA Review — commits c35be24 + 2b8cab1 (pixel-qa, 2026-03-25)
+
+### Verdict: ✅ APPROVED
+
+**All checks pass. Builds clean. Functional smoke test confirmed. M7 is ready to ship.**
+
+| Check | Result |
+|-------|--------|
+| `basicAuth` applied globally before `/ui` static route (line 83 before 89) | ✅ PASS |
+| `/ui` served via `express.static` behind auth | ✅ PASS |
+| `GET /api/layout` — returns `{}` on ENOENT | ✅ PASS |
+| `PUT /api/layout` — writes `~/.openclaw/pixel-office-layout.json`, returns `{ok:true}` | ✅ PASS |
+| `GET /api/seats` — returns `{}` on ENOENT | ✅ PASS |
+| `PUT /api/seats` — writes `~/.openclaw/pixel-office-seats.json`, returns `{ok:true}` | ✅ PASS |
+| `/api/agents/events` (L553) declared before `/:agentId/sessions/:sessionKey/events` (L580) | ✅ PASS |
+| `initBrowserAgentFeed()` exported from `browserAgentFeed.ts` | ✅ PASS |
+| Called in `App.tsx` `isBrowserRuntime` useEffect via dynamic import | ✅ PASS |
+| All 5 SSE event types handled: `agentAdded`, `agentRemoved`, `toolStart`, `toolDone`, `text` | ✅ PASS |
+| `agentAdded` → `dispatch agentAdded + agentStatus:waiting` | ✅ PASS |
+| `toolStart` → `dispatch agentToolStart + agentStatus:active` | ✅ PASS |
+| `toolDone` → `dispatch agentToolDone`; if no pending tools → `agentStatus:waiting` | ✅ PASS |
+| Exponential backoff: `min(retryDelay*2, 30000)`, initial 1s | ✅ PASS |
+| `vscodeApi.ts` browser runtime: `saveLayout` → `PUT /api/layout` | ✅ PASS |
+| `vscodeApi.ts` browser runtime: `saveAgentSeats` → `PUT /api/seats` | ✅ PASS |
+| `office-server/public/ui/index.html` exists | ✅ PASS |
+| `assets/` contains `characters/`, `floors/`, `furniture/`, `browserAgentFeed-*.js` | ✅ PASS |
+| `App.tsx` fetches `/api/layout` + `/api/seats` on init; dispatches `existingAgents` then `layoutLoaded` | ✅ PASS |
+| `npm run build` (webview-ui) — tsc + vite, zero errors/warnings | ✅ PASS |
+| `npm run compile` (root) — tsc + eslint + esbuild + vite, zero errors/warnings | ✅ PASS |
+| Functional: `GET /ui/` with auth → HTTP 200 | ✅ PASS |
+| Functional: `GET /ui/` without auth → HTTP 401 | ✅ PASS |
+| Functional: `PUT /api/layout` roundtrip persists correctly | ✅ PASS |
+
+### Notes
+
+- Route order: `/api/agents/events` (3 path segments, L553) appears AFTER `/api/agents/:agentId/sessions/:sessionKey` (5 segments, L537) in source. This is fine — different segment counts cannot collide. The critical ordering (before the 6-segment `/:agentId/sessions/:sessionKey/events` at L580) is correct.
+- `express.json()` middleware added after `basicAuth` and before all routes — correct placement for PUT body parsing.
+- `vscodeApi.ts` uses `Record<string, unknown>` cast (no `any`) for TypeScript-compliant message type narrowing — clean.
+- `App.tsx` init restore sequence (seats/`existingAgents` first, then layout/`layoutLoaded`) matches the spec ordering requirement for correct desk placement.
 
 ---
 
