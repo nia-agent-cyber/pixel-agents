@@ -426,9 +426,14 @@ function stopSessionFeed(agentId, sessionKey) {
   activeSessions.delete(key);
 }
 
+const RECENT_SESSION_MS = 2 * 60 * 60 * 1000; // only track sessions active in last 2h
+
 function scanForNewSessions() {
   const sessions = scanAgents();
+  const cutoff = Date.now() - RECENT_SESSION_MS;
   for (const s of sessions) {
+    // Skip sessions that haven't been touched in the last 2 hours
+    if (new Date(s.mtime).getTime() < cutoff) continue;
     const key = `${s.agentId}:${s.sessionKey}`;
     if (knownSessions.has(key)) continue;
     knownSessions.set(key, { agentId: s.agentId, sessionKey: s.sessionKey });
@@ -558,8 +563,11 @@ app.get('/api/agents/events', (req, res) => {
 
   feedClients.add(res);
 
-  // Replay agentAdded for all currently-known sessions to this new client
-  for (const { agentId, sessionKey } of knownSessions.values()) {
+  // Replay agentAdded only for sessions currently being watched (active in last 2h)
+  for (const key of activeSessions.keys()) {
+    const colonIdx = key.indexOf(':');
+    const agentId = key.slice(0, colonIdx);
+    const sessionKey = key.slice(colonIdx + 1);
     res.write(
       `data: ${JSON.stringify({ type: 'agentAdded', agentId, sessionKey, label: agentId })}\n\n`,
     );
