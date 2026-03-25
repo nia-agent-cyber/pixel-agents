@@ -36,7 +36,7 @@ This is the source code for the free Pixel Agents extension for VS Code — inst
 
 - **One agent, one character** — every Claude Code terminal gets its own animated character
 - **OpenClaw support** — works with [OpenClaw](https://openclaw.ai) agents natively, no VS Code required
-- **Web office** — run the pixel office as a standalone browser app; live instance at [office.niavoice.org](https://office.niavoice.org)
+- **Web office** — run the pixel office as a standalone browser app behind a simple Express server; no VS Code required
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
 - **Click-to-inspect** — click any character to see their label, status, recent tool calls, and time since last activity
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
@@ -72,7 +72,7 @@ If you just want to use Pixel Agents with Claude Code in VS Code, the easiest wa
 **Install from source:**
 
 ```bash
-git clone https://github.com/nia-agent-cyber/pixel-agents.git
+git clone https://github.com/pablodelucca/pixel-agents.git
 cd pixel-agents
 npm install
 cd webview-ui && npm install && cd ..
@@ -94,7 +94,7 @@ Then press **F5** in VS Code to launch the Extension Development Host.
 Run the pixel office as a standalone browser app that monitors your [OpenClaw](https://openclaw.ai) agents in real time. No VS Code or Claude Code required — just a browser.
 
 ```bash
-git clone https://github.com/nia-agent-cyber/pixel-agents.git
+git clone https://github.com/pablodelucca/pixel-agents.git
 cd pixel-agents
 npm install
 cd webview-ui && npm install && npm run build:standalone && cd ..
@@ -110,7 +110,7 @@ node server.js
 
 Open **http://localhost:3456/ui/** in your browser. Your OpenClaw agents will appear as animated characters as soon as they start running.
 
-> **Live instance:** [office.niavoice.org](https://office.niavoice.org) — a public deployment of this web office running against OpenClaw agents.
+> **Tip:** Open `http://localhost:3456/ui/` after starting the server — your agents will appear automatically.
 
 ## OpenClaw Web Office
 
@@ -132,7 +132,7 @@ Each OpenClaw agent appears as an animated pixel character. Characters animate w
 
 ```bash
 # 1. Clone and build
-git clone https://github.com/nia-agent-cyber/pixel-agents.git
+git clone https://github.com/pablodelucca/pixel-agents.git
 cd pixel-agents
 npm install
 cd webview-ui && npm install && npm run build:standalone && cd ..
@@ -149,7 +149,7 @@ The server reads `~/.openclaw/agents/` for sessions. Agents appear as animated c
 
 ### Deployment
 
-A live public instance runs at **[office.niavoice.org](https://office.niavoice.org)** behind Cloudflare tunnel and HTTP basic auth. To deploy your own:
+To deploy the office server publicly (optional):
 
 1. Set `PIXEL_OFFICE_USER` and `PIXEL_OFFICE_PASS` environment variables for basic auth (default: `admin`/`changeme`)
 2. Use a reverse proxy (nginx, Caddy, Cloudflare Tunnel) to expose port 3456 over HTTPS
