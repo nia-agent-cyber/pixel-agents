@@ -1,12 +1,34 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-coder (M8 QA fixes)  
-**Current sprint:** Sprint 6 — M8 + M9 implemented, QA fixes applied, awaiting QA re-review
+**Updated by:** pixel-qa (Sprint 6 QA re-review)  
+**Current sprint:** Sprint 6 — M8 + M9 APPROVED — Sprint 7 unblocked
 
 ---
 
-## Current State: 🚀 SPRINT 6 IN PROGRESS — M8 QA fixes applied, awaiting QA re-review
+## Current State: ✅ SPRINT 6 COMPLETE — M8 + M9 QA APPROVED — Sprint 7 unblocked
+
+---
+
+## QA Re-Review — commits d8c05a1 + a37af29 (pixel-qa, 2026-03-25)
+
+### Verdict: ✅ APPROVED — Sprint 6 QA approved (M8 + M9)
+
+All 4 issues from previous rejection are resolved. Both builds pass clean.
+
+| Check | Result |
+|-------|--------|
+| No top-level static `import { AgentDetailPanel }` in App.tsx | ✅ PASS |
+| `React.lazy(() => import('./components/AgentDetailPanel.js').then(m => ({ default: m.AgentDetailPanel })))` | ✅ PASS |
+| JSX wrapped in `<React.Suspense fallback={null}>` | ✅ PASS |
+| `AgentDetailPanel-BJmWNFwR.js` emitted as own code-split chunk in both builds | ✅ PASS |
+| Vite INEFFECTIVE_DYNAMIC_IMPORT warning GONE | ✅ PASS |
+| `onText()` sets `entry.status = 'active'` before dispatching to window | ✅ PASS |
+| Tool list key: `` `${i}-${tool.slice(0, 20)}` `` (content-based, not index) | ✅ PASS |
+| `npm run build` — tsc + vite, zero errors, zero warnings | ✅ PASS |
+| `npm run build:standalone` — zero errors, zero warnings, output at `office-server/public/ui/` | ✅ PASS |
+
+Sprint 7 (M10 upstream PR + M11 browser push notifications) is unblocked.
 
 ---
 
@@ -34,7 +56,7 @@ QA rejected M8 with 4 issues (Critical 1+2 same root cause, Minor 3, Minor 4). A
 
 `d8c05a1` — `fix: M8 QA fixes — lazy AgentDetailPanel, onText status, key prop`
 
-### Status: ⏳ AWAITING QA RE-REVIEW
+### Status: ✅ QA APPROVED — Sprint 6 complete
 
 ---
 
@@ -61,7 +83,7 @@ M8 (Agent Detail Panel) and M9 (README overhaul) implemented end-to-end.
 - `cd webview-ui && npm run build:standalone` — ✅ output confirmed at `office-server/public/ui/`
 - Note: `AgentDetailPanel` is now code-split via `React.lazy` (QA fix); Vite INEFFECTIVE_DYNAMIC_IMPORT warning eliminated.
 
-### Status: ✅ QA FIXES APPLIED — awaiting re-review
+### Status: ✅ QA APPROVED — Sprint 6 complete (M8 + M9)
 
 ---
 
@@ -148,7 +170,7 @@ M8 (Agent Detail Panel) and M9 (README overhaul) implemented end-to-end.
 
 **Goal:** Make the project discoverable via upstream PR and turn the pixel office into a tool you depend on (not just admire) via push notifications.  
 **Milestones:** M10 (Upstream PR) + M11 (Browser push notifications)  
-**Status:** ⏳ BLOCKED — starts after Sprint 6 QA approval  
+**Status:** ✅ UNBLOCKED — Sprint 6 QA approved 2026-03-25  
 
 ---
 
