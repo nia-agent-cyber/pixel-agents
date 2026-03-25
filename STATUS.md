@@ -1,8 +1,39 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-pm  
-**Current sprint:** Sprint 6 in progress (M8 + M9)
+**Updated by:** pixel-pm (M8 + M9 impl)  
+**Current sprint:** Sprint 6 — M8 + M9 implemented, awaiting QA
+
+---
+
+## Current State: 🚀 SPRINT 6 IN PROGRESS — M8 + M9 implemented, awaiting QA
+
+---
+
+## Sprint 6 (M8 + M9) — pixel-pm, 2026-03-25
+
+### Summary
+
+M8 (Agent Detail Panel) and M9 (README overhaul) implemented end-to-end.  
+`npm run build` + `npm run build:standalone` both pass clean. Built output copied to `office-server/public/ui/`.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `webview-ui/src/browserAgentFeed.ts` | Extended module-level store with `AgentDetail` type, `label`, `sessionKey`, `status`, `recentTools`, `lastActivityAt`, `addedAt` fields per agent; added `getAgentDetail()` + `subscribeAgentDetail()` exports; subscriber notify on all state mutations |
+| `webview-ui/src/components/AgentDetailPanel.tsx` | **New** — browser-only overlay component; shows label, copyable session key, status badge, last 5 tool calls, time-since; 1-second tick for live "time since"; Escape-to-close; auto-closes on agent removal |
+| `webview-ui/src/App.tsx` | Added `selectedAgentId` state; modified `handleClick` to open detail panel in `isBrowserRuntime` path (VS Code path unchanged); renders `AgentDetailPanel` conditionally |
+| `README.md` | M9: added `## OpenClaw Web Office` section with setup, screenshot, deployment; updated Features list (OpenClaw support, web office, click-to-inspect); split Getting Started into Option A (VS Code) + Option B (web); `office.niavoice.org` mentioned |
+| `office-server/public/ui/` | Rebuilt from `build:standalone` |
+
+### Build
+
+- `cd webview-ui && npm run build` — ✅ clean (tsc + vite, zero errors/warnings)
+- `cd webview-ui && npm run build:standalone` — ✅ output confirmed at `office-server/public/ui/`
+- Note: one harmless Vite warning about `browserAgentFeed.ts` being both dynamically and statically imported (caused by `AgentDetailPanel` importing it directly while `App.tsx` uses dynamic import for `initBrowserAgentFeed`). This is benign — both end up in the same chunk, which is the desired behaviour.
+
+### Status: ⏳ AWAITING QA
 
 ---
 

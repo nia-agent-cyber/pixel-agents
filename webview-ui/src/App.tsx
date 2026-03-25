@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { AgentDetailPanel } from './components/AgentDetailPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { DebugView } from './components/DebugView.js';
 import { ZoomControls } from './components/ZoomControls.js';
@@ -206,6 +207,8 @@ function App() {
 
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [alwaysShowOverlay, setAlwaysShowOverlay] = useState(false);
+  // M8: selected agent for the browser detail panel (browser runtime only)
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), []);
   const handleToggleAlwaysShowOverlay = useCallback(
@@ -236,13 +239,21 @@ function App() {
     vscode.postMessage({ type: 'closeAgent', id });
   }, []);
 
-  const handleClick = useCallback((agentId: number) => {
-    // If clicked agent is a sub-agent, focus the parent's terminal instead
-    const os = getOfficeState();
-    const meta = os.subagentMeta.get(agentId);
-    const focusId = meta ? meta.parentAgentId : agentId;
-    vscode.postMessage({ type: 'focusAgent', id: focusId });
-  }, []);
+  const handleClick = useCallback(
+    (agentId: number) => {
+      if (isBrowserRuntime) {
+        // M8: open the agent detail panel instead of focusing a terminal
+        setSelectedAgentId(agentId);
+        return;
+      }
+      // If clicked agent is a sub-agent, focus the parent's terminal instead
+      const os = getOfficeState();
+      const meta = os.subagentMeta.get(agentId);
+      const focusId = meta ? meta.parentAgentId : agentId;
+      vscode.postMessage({ type: 'focusAgent', id: focusId });
+    },
+    [setSelectedAgentId],
+  );
 
   const officeState = getOfficeState();
 
@@ -420,6 +431,11 @@ function App() {
           subagentTools={subagentTools}
           onSelectAgent={handleSelectAgent}
         />
+      )}
+
+      {/* M8: Agent detail panel — browser runtime only */}
+      {isBrowserRuntime && selectedAgentId !== null && (
+        <AgentDetailPanel agentId={selectedAgentId} onClose={() => setSelectedAgentId(null)} />
       )}
 
       {showMigrationNotice && (

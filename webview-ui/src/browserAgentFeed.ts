@@ -6,23 +6,105 @@
  * using the same MessageEvent shape that useExtensionMessages consumes.
  *
  * All dispatches: window.dispatchEvent(new MessageEvent('message', { data: payload }))
+ *
+ * M8 extension: module-level detail store exposed via getAgentDetail /
+ * subscribeAgentDetail so the AgentDetailPanel can render live agent context.
  */
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+const RECENT_TOOLS_MAX = 5;
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Snapshot of an agent's state for the detail panel (M8).
+ * Exposed read-only via getAgentDetail().
+ */
+export type AgentDetail = {
+  label: string;
+  sessionKey: string;
+  status: 'active' | 'waiting' | 'removed';
+  recentTools: readonly string[];
+  lastActivityAt: number;
+  addedAt: number;
+};
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
 let nextAgentId = 1;
 
 /**
- * Map keyed by "agentId:sessionKey".
- * Each entry tracks the numeric ID assigned to this agent and its pending tools
- * (toolCallId|toolName → generated toolId) for toolStart/toolDone correlation.
+ * Full per-agent entry.  activeAgents is keyed by "agentId:sessionKey".
  */
-const activeAgents = new Map<string, { numericId: number; pendingTools: Map<string, string> }>();
+type AgentEntry = {
+  numericId: number;
+  pendingTools: Map<string, string>;
+  // detail store fields (M8)
+  label: string;
+  sessionKey: string;
+  status: 'active' | 'waiting' | 'removed';
+  recentTools: string[];
+  lastActivityAt: number;
+  addedAt: number;
+};
+
+const activeAgents = new Map<string, AgentEntry>();
+
+/**
+ * Subscribers keyed by numericId.  Each Set holds callbacks to call on state change.
+ */
+const detailSubscribers = new Map<number, Set<() => void>>();
+
+// ── Subscriber helpers (M8) ────────────────────────────────────────────────────
+
+function notifySubscribers(numericId: number): void {
+  const subs = detailSubscribers.get(numericId);
+  if (subs) {
+    subs.forEach((cb) => cb());
+  }
+}
+
+/**
+ * Subscribe to detail updates for a specific agent.
+ * Returns an unsubscribe function.
+ */
+export function subscribeAgentDetail(numericId: number, cb: () => void): () => void {
+  let subs = detailSubscribers.get(numericId);
+  if (!subs) {
+    subs = new Set();
+    detailSubscribers.set(numericId, subs);
+  }
+  subs.add(cb);
+  return (): void => {
+    subs!.delete(cb);
+    if (subs!.size === 0) {
+      detailSubscribers.delete(numericId);
+    }
+  };
+}
+
+/**
+ * Get the current detail snapshot for an agent by numeric ID.
+ * Returns undefined if the agent is not found.
+ */
+export function getAgentDetail(numericId: number): AgentDetail | undefined {
+  for (const entry of activeAgents.values()) {
+    if (entry.numericId === numericId) {
+      return {
+        label: entry.label,
+        sessionKey: entry.sessionKey,
+        status: entry.status,
+        recentTools: [...entry.recentTools],
+        lastActivityAt: entry.lastActivityAt,
+        addedAt: entry.addedAt,
+      };
+    }
+  }
+  return undefined;
+}
 
 // ── Dispatch helper ────────────────────────────────────────────────────────────
 
@@ -40,16 +122,29 @@ function onAgentAdded(agentId: string, sessionKey: string, label: string): void 
   const key = agentKey(agentId, sessionKey);
   if (activeAgents.has(key)) return;
   const numericId = nextAgentId++;
-  activeAgents.set(key, { numericId, pendingTools: new Map() });
+  const now = Date.now();
+  activeAgents.set(key, {
+    numericId,
+    pendingTools: new Map(),
+    label,
+    sessionKey,
+    status: 'waiting',
+    recentTools: [],
+    lastActivityAt: now,
+    addedAt: now,
+  });
   dispatch({ type: 'agentAdded', id: numericId, label, projectDir: agentId });
   dispatch({ type: 'agentStatus', id: numericId, status: 'waiting' });
+  notifySubscribers(numericId);
 }
 
 function onAgentRemoved(agentId: string, sessionKey: string): void {
   const key = agentKey(agentId, sessionKey);
   const entry = activeAgents.get(key);
   if (!entry) return;
+  entry.status = 'removed';
   dispatch({ type: 'agentStatus', id: entry.numericId, status: 'removed' });
+  notifySubscribers(entry.numericId);
   activeAgents.delete(key);
 }
 
@@ -70,8 +165,18 @@ function onToolStart(
   const lookupKey = toolCallId ?? tool;
   pendingTools.set(lookupKey, toolId);
   const statusText = `${tool}${input ? ': ' + input.slice(0, 60) : ''}`;
+
+  // Update detail store (M8)
+  entry.recentTools.push(statusText);
+  if (entry.recentTools.length > RECENT_TOOLS_MAX) {
+    entry.recentTools.shift();
+  }
+  entry.status = 'active';
+  entry.lastActivityAt = Date.now();
+
   dispatch({ type: 'agentToolStart', id: numericId, toolId, status: statusText });
   dispatch({ type: 'agentStatus', id: numericId, status: 'active' });
+  notifySubscribers(numericId);
 }
 
 function onToolDone(agentId: string, sessionKey: string, toolCallId: string | undefined): void {
@@ -84,7 +189,10 @@ function onToolDone(agentId: string, sessionKey: string, toolCallId: string | un
   pendingTools.delete(lookupKey);
   dispatch({ type: 'agentToolDone', id: numericId, toolId });
   if (pendingTools.size === 0) {
+    // Update detail store (M8)
+    entry.status = 'waiting';
     dispatch({ type: 'agentStatus', id: numericId, status: 'waiting' });
+    notifySubscribers(numericId);
   }
 }
 
@@ -92,7 +200,10 @@ function onText(agentId: string, sessionKey: string): void {
   const key = agentKey(agentId, sessionKey);
   const entry = activeAgents.get(key);
   if (!entry) return;
+  // Update detail store (M8)
+  entry.lastActivityAt = Date.now();
   dispatch({ type: 'agentStatus', id: entry.numericId, status: 'active' });
+  notifySubscribers(entry.numericId);
 }
 
 // ── SSE connection with exponential back-off ──────────────────────────────────
