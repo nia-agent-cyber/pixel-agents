@@ -1,12 +1,129 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-qa  
-**Current sprint:** Sprint 5 (M7 QA APPROVED)
+**Updated by:** pixel-ba  
+**Current sprint:** Sprint 5 complete → Sprint 6 planning
 
 ---
 
-## Current State: ✅ M7 QA APPROVED — Web pixel office ready; standalone build + layout persistence confirmed
+## Current State: ✅ SPRINT 5 COMPLETE — Web pixel office live at office.niavoice.org
+
+---
+
+## Next Steps
+
+**Analysis by:** pixel-ba, 2026-03-25  
+**Post-sprint:** Sprint 5 (M6 live agent feed + M7 standalone web build)
+
+---
+
+### 1. Recommended Priority: **Polish + Validate**
+
+Sprint 5 shipped the product into the world. The pixel office is live, agents appear in real time, layout persists across reloads. The stack is sound.  
+
+But the question is: *does anyone actually use it daily?*  
+
+Right now the office is **visually compelling but informationally thin** — you see characters moving, but you can't tell what any agent is doing without cross-referencing a terminal. Before building more features, we need to (a) unlock daily utility through polish, and (b) open the project to external eyes via the upstream PR. Adding more scope before validating the core value proposition risks building the wrong things.
+
+**Priority order:** Polish → Validate → Build
+
+---
+
+### 2. Top Actions for Sprint 6
+
+---
+
+#### M8 — Agent Detail Panel (click → inspect) 🔥 **HIGHEST IMPACT**
+
+**What:** Clicking a pixel character opens a lightweight overlay/tooltip showing:
+- Agent label + session key (copyable)
+- Current status badge (active / waiting / removed)
+- Last 3–5 tool calls with their display status strings (e.g. "Reading src/App.tsx", "Running: npm build")
+- Time since last activity
+
+**Rationale:** The office currently gives you *presence* but not *context*. Presence is fun once; context is what makes you keep the tab open. The client already has all this data — `activeAgents` in `browserAgentFeed.ts` tracks pending tools and statuses. This is mostly a UI-layer addition (no new API endpoints needed). High reward, moderate effort.
+
+**Success signal:** Remi keeps `office.niavoice.org` open in a background tab without being prompted.
+
+---
+
+#### M9 — README overhaul: OpenClaw + Web Office docs 📖
+
+**What:** The current README says "works with Claude Code" and has zero mention of the OpenClaw adapter, the web office, or `office.niavoice.org`. Update to include:
+- A "## OpenClaw Web Office" section with self-serve setup steps
+- Screenshot or GIF of live agents in the web office
+- Brief description of the VS Code extension path vs the web-only path
+- Update the Features list to mention OpenClaw support
+
+**Rationale:** The product is distributable but invisible. Anyone landing on the repo sees a Claude Code extension. Our most differentiated work (no-VS-Code browser office) is undocumented. A good README unlocks organic sharing — Remi can paste the link; a colleague can self-serve without a Telegram explanation.
+
+**Success signal:** Someone outside the team visits `office.niavoice.org` and gets it running without asking for help.
+
+---
+
+#### M10 — Upstream PR to pablodelucca/pixel-agents 🔁
+
+**What:** Open the Phase 2 PR to upstream. Even if it takes weeks to merge, this:
+1. **Validates the architecture** — upstream maintainer review is the highest-quality external QA we can get. Their feedback will surface integration issues we've normalized.
+2. **Creates discoverability** — the upstream has VS Code Marketplace presence and GitHub stars. Our OpenClaw adapter becomes findable by anyone already using Pixel Agents.
+3. **Forces cleanup** — the diff must make sense to a stranger. Writing the PR description surfaces any rough edges.
+
+Pre-work: confirm our `main` rebases cleanly onto upstream `main`; write a concise PR description explaining the OpenClaw adapter design (D1–D9 architecture points).
+
+**Success signal:** PR opened, pablodelucca leaves at least one comment (even "needs changes").
+
+---
+
+#### M11 — Browser push notifications (agent idle after active) 🔔
+
+**What:** When an agent transitions from `active` → `waiting`, fire a browser Notification API alert with the agent label and last tool used. Requires a one-time permission prompt; subsequently zero UX friction.
+
+**Rationale:** This is the feature that turns the pixel office from a dashboard you glance at into a tool you depend on. The office is designed to run in a background tab. Notifications close the loop — you kick off a 20-minute build, forget about it, and the browser pings you when it's done. Without notifications, the office is ambient art. With notifications, it's actionable.
+
+**Note:** Only notify on the `waiting` transition when the previous status was `active` (not on initial `agentAdded`). Filter out transitions that happen within 2s of agent creation (avoids noise on reconnect replay).
+
+**Success signal:** Remi reports the office notification fired at least once usefully during a real work session.
+
+---
+
+#### M12 (Stretch) — Session transcript viewer 📜
+
+**What:** New API endpoint `GET /api/agents/:agentId/sessions/:sessionKey/transcript?last=30` that streams the last N JSONL lines as structured JSON. Web UI shows a compact read-only log panel (expandable from the M8 detail panel). Tool calls shown with their full inputs/outputs.
+
+**Rationale:** The M8 panel gives you the last 5 actions. The transcript viewer gives you the full context. Useful when an agent errors and you want to know why without switching windows. Also useful for reviewing what a subagent did after it finished.
+
+**Effort:** Medium. The server already has the JSONL reading infrastructure (used by the VS Code extension path and the SSE feed). Exposing it as a REST endpoint is low-complexity. UI is the main work.
+
+**Hold until M8 is validated.** If the M8 panel is enough for daily use, M12 may not be needed this sprint.
+
+---
+
+### 3. What Success Looks Like for Sprint 6
+
+**Milestone:** The office graduates from "demo" to "daily tool."
+
+| Signal | Target |
+|--------|--------|
+| `office.niavoice.org` open in at least one person's browser unprompted | ✅ by end of sprint |
+| Upstream PR opened on `pablodelucca/pixel-agents` | ✅ by end of sprint |
+| Agent detail panel shipped (M8) | ✅ by end of sprint |
+| README documents OpenClaw + web office | ✅ by end of sprint |
+| Browser notification fires at least once in real use | ✅ by end of sprint |
+| Upstream PR receives external comment | 🎯 stretch |
+
+---
+
+### Riskiest Assumption Still Untested
+
+**"The pixel office is useful, not just fun."**  
+
+Every feature built so far has been infrastructure: parsing, wiring, persistence. We haven't tested whether a non-developer wants to stare at pixel characters to monitor agents. The office is architecturally sound. What's unvalidated is the value proposition: does ambient visualization of agent activity actually help Remi (or anyone else) work better, or is it a one-time novelty?
+
+M8 (detail panel) + M11 (notifications) are the two features that turn novelty into utility. They should be validated before M12 or any further infrastructure work.
+
+Secondary risk: **stale session detection may be too aggressive.** The 5-minute no-activity timeout could prematurely remove agents that are paused for long model inference or waiting for permission. Worth monitoring with real multi-agent sessions.
+
+---
 
 ---
 
