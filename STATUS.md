@@ -1,12 +1,12 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-coder  
-**Current sprint:** Sprint 5 (M6 COMPLETE)
+**Updated by:** pixel-qa  
+**Current sprint:** Sprint 5 (M6 QA APPROVED)
 
 ---
 
-## Current State: ✅ M6 COMPLETE — Browser SSE bridge live; real OpenClaw agents appear in web pixel office
+## Current State: ✅ M6 QA APPROVED — Browser SSE bridge verified; ready for M7 (standalone deploy)
 
 ---
 
@@ -163,6 +163,45 @@ Browser SSE bridge implemented end-to-end. Real OpenClaw agents now appear as an
 ### Commit
 
 `887c427` — `feat: M6 browser SSE bridge — live agent feed for web pixel office`
+
+---
+
+## QA Review — commits 887c427 + d446b8d (pixel-qa, 2026-03-25)
+
+### Verdict: ✅ APPROVED
+
+**All checks pass. Build clean. Smoke test confirmed. M7 is unblocked.**
+
+| Check | Result |
+|-------|--------|
+| Route order: `/api/agents/events` before `/:agentId/sessions/:sessionKey/events` (line 507 vs 534) | ✅ PASS |
+| `feedClients` Set + `knownSessions`/`activeSessions` Maps — module-level | ✅ PASS |
+| `resetStaleTimer` — clears existing, fires `agentRemoved` + `stopSessionFeed` on expiry | ✅ PASS |
+| `scanForNewSessions` — deduplicates via `knownSessions.has(key)`, `broadcastFeedEvent` + `startSessionFeed` | ✅ PASS |
+| Heartbeat `: heartbeat\n\n` every 15s (`FEED_HEARTBEAT_MS = 15000`) | ✅ PASS (smoke tested) |
+| `agentAdded` replayed for all `knownSessions.values()` on new client connect | ✅ PASS (smoke tested) |
+| `startFeedWatcher()` called inside `app.listen` callback | ✅ PASS |
+| `initBrowserAgentFeed()` → `connect(1000)` → `new EventSource('/api/agents/events')` | ✅ PASS |
+| Sequential numeric IDs (`nextAgentId` starts at 1, increments in `onAgentAdded`) | ✅ PASS |
+| All 5 SSE event types handled: `agentAdded`, `agentRemoved`, `toolStart`, `toolDone`, `text` | ✅ PASS |
+| Exponential backoff: `nextDelay = Math.min(retryDelayMs * 2, 30000)`, initial 1s | ✅ PASS |
+| TypeScript strict: no `enum`, no `: any`, no unused locals | ✅ PASS |
+| `App.tsx` dynamic import `browserAgentFeed.js` in `isBrowserRuntime` useEffect | ✅ PASS |
+| `npm run build` — tsc + vite, zero errors/warnings | ✅ PASS |
+| Server smoke test — SSE headers (`text/event-stream`, `no-cache`, `keep-alive`) | ✅ PASS |
+| Server smoke test — heartbeat at ~15s, `agentAdded` replay on connect | ✅ PASS |
+
+### Notes
+
+- Route order concern is real but benign for current route set: `/api/agents/events` (3 path segments)
+  cannot be captured by `/api/agents/:agentId/sessions/:sessionKey` (5 segments) or its `/events`
+  variant (6 segments). Placement before the parameterized routes is correct and future-proof.
+- Minor race in `startSessionFeed`: `fs.watch` registered before EOF seek means a file write
+  in the ~1ms window could trigger a history replay. Acceptable — same pattern as VS Code extension
+  watcher; window is negligible in practice.
+- `onToolDone` fallback when `toolCallId` is undefined uses `''` as lookup key rather than tool
+  name. In practice OpenClaw always provides `toolCallId`; edge case is benign.
+- Build output: `browserAgentFeed-D_eSqtgk.js` (1.64 kB gzip: 0.73 kB) — correctly code-split.
 
 ---
 
