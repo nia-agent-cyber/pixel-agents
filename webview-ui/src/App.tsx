@@ -133,6 +133,9 @@ function App() {
       void import('./browserAgentFeed.js').then(({ initBrowserAgentFeed }) =>
         initBrowserAgentFeed(),
       );
+      void import('./browserNotify.js').then(({ requestNotifyPermission }) =>
+        requestNotifyPermission(),
+      );
 
       // Restore persisted layout and seats from server.
       // Seats are dispatched first (existingAgents) so they are buffered and

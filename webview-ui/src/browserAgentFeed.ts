@@ -9,7 +9,12 @@
  *
  * M8 extension: module-level detail store exposed via getAgentDetail /
  * subscribeAgentDetail so the AgentDetailPanel can render live agent context.
+ *
+ * M11 extension: fires browser push notifications via browserNotify when an
+ * agent transitions from active → waiting/removed (idle).
  */
+
+import { notifyAgentIdle } from './browserNotify.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -142,9 +147,14 @@ function onAgentRemoved(agentId: string, sessionKey: string): void {
   const key = agentKey(agentId, sessionKey);
   const entry = activeAgents.get(key);
   if (!entry) return;
+  // M11: notify if the agent was active when it was removed
+  const wasActive = entry.status === 'active';
   entry.status = 'removed';
   dispatch({ type: 'agentStatus', id: entry.numericId, status: 'removed' });
   notifySubscribers(entry.numericId);
+  if (wasActive) {
+    notifyAgentIdle(agentId, entry.label);
+  }
   activeAgents.delete(key);
 }
 
@@ -193,6 +203,8 @@ function onToolDone(agentId: string, sessionKey: string, toolCallId: string | un
     entry.status = 'waiting';
     dispatch({ type: 'agentStatus', id: numericId, status: 'waiting' });
     notifySubscribers(numericId);
+    // M11: notify user when agent becomes idle after active tool run
+    notifyAgentIdle(agentId, entry.label);
   }
 }
 

@@ -1,6 +1,6 @@
-import { n as e, r as t, t as n } from './index-Cg1ESQQc.js';
-import { getAgentDetail as r, subscribeAgentDetail as i } from './browserAgentFeed-BfOOTFGY.js';
-var a = t(e(), 1),
+import { i as e, n as t, t as n } from './index-CVnfRjxH.js';
+import { getAgentDetail as r, subscribeAgentDetail as i } from './browserAgentFeed-CZF7CW15.js';
+var a = e(t(), 1),
   o = n(),
   s = 1e3,
   c = 200,
