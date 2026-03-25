@@ -1,12 +1,12 @@
 # STATUS.md — pixel-bridge Project Status
 
 **Last updated:** 2026-03-25  
-**Updated by:** pixel-pm  
-**Current sprint:** Sprint 5 (M6 IN PROGRESS — Pixel Coder spawned)
+**Updated by:** pixel-coder  
+**Current sprint:** Sprint 5 (M6 COMPLETE)
 
 ---
 
-## Current State: 🚧 M6 IN PROGRESS — Browser SSE bridge (web pixel office, live agent feed)
+## Current State: ✅ M6 COMPLETE — Browser SSE bridge live; real OpenClaw agents appear in web pixel office
 
 ---
 
@@ -117,6 +117,52 @@ useEffect(() => {
 - `/api/agents/events` SSE stream emits `agentAdded` for active sessions on connect
 - Browser at `http://localhost:5173` (Vite dev) with a live OpenClaw session: pixel character appears and animates when tools run
 - No VS Code dependency required
+
+---
+
+---
+
+## Sprint 5 (M6) — pixel-coder, 2026-03-25
+
+### Summary
+
+Browser SSE bridge implemented end-to-end. Real OpenClaw agents now appear as animated pixel characters in the standalone web pixel office without VS Code.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `office-server/server.js` | New `/api/agents/events` SSE endpoint + Live Agent Feed module (M6) |
+| `webview-ui/src/browserAgentFeed.ts` | **New** — SSE client with agent tracking, pending-tool correlation, and exponential back-off reconnect |
+| `webview-ui/src/App.tsx` | Wire `initBrowserAgentFeed()` into the `isBrowserRuntime` useEffect |
+
+### Implementation notes
+
+**`office-server/server.js`**
+- Added three constants: `STALE_TIMEOUT_MS` (5 min), `FEED_SCAN_MS` (5 s), `FEED_HEARTBEAT_MS` (15 s)
+- Module-level state: `feedClients` (Set of SSE responses), `knownSessions` (Map keyed by `agentId:sessionKey`), `activeSessions` (per-session reader state)
+- `startSessionFeed` — opens `fs.watch` on the JSONL file + 5 s poll fallback; skips history (seeks to current EOF on first open so only live events are broadcast)
+- `stopSessionFeed` — cleans up watcher, poll interval, and stale timer
+- `resetStaleTimer` — per-session timeout reset on every `toolStart`/`toolDone`/`text` event; fires `agentRemoved` + stops reader when expired
+- `scanForNewSessions` — walks `~/.openclaw/agents/` with the existing `scanAgents()` helper; registers new sessions only
+- `startFeedWatcher` — initial scan + periodic poll + `fs.watch` on agents dir; called from `app.listen` callback
+- Route declared **before** `/api/agents/:agentId/sessions/:sessionKey/events` to prevent Express param collision
+
+**`webview-ui/src/browserAgentFeed.ts`**
+- Sequential numeric IDs starting at 1, maintained in module-level `nextAgentId`
+- Per-agent `pendingTools: Map<toolCallId|toolName, toolId>` for `agentToolDone` correlation
+- `onToolDone` clears the pending tool and dispatches `agentStatus: waiting` when `pendingTools.size === 0`
+- `connect(retryDelayMs)` — opens `EventSource('/api/agents/events')`; on error, closes and reconnects with delay doubled (1 s → 2 s → 4 s … → 30 s max)
+- All dispatches via `window.dispatchEvent(new MessageEvent('message', { data: payload }))`
+- TypeScript: no `enum`, `import type` not needed (no type-only imports), fully compliant with `noUnusedLocals` / `noUnusedParameters`
+
+### Build
+
+`npm run build` — **✅ clean** (tsc + eslint + esbuild + vite, zero errors, zero warnings)
+
+### Commit
+
+`887c427` — `feat: M6 browser SSE bridge — live agent feed for web pixel office`
 
 ---
 
