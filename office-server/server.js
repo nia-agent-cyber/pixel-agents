@@ -447,14 +447,21 @@ function stopSessionFeed(agentId, sessionKey) {
   activeSessions.delete(key);
 }
 
-const RECENT_SESSION_MS = 2 * 60 * 60 * 1000; // only track sessions active in last 2h
+const RECENT_SESSION_MS = 30 * 60 * 1000; // only track sessions active in last 30min
 
 function scanForNewSessions() {
   const sessions = scanAgents();
   const cutoff = Date.now() - RECENT_SESSION_MS;
+
+  // Deduplicate: only the most recent session per label
+  const seenLabels = new Set();
+
   for (const s of sessions) {
-    // Skip sessions that haven't been touched in the last 2 hours
+    // Skip sessions older than 30 minutes
     if (new Date(s.mtime).getTime() < cutoff) continue;
+    // Skip duplicate labels — sessions are sorted newest-first so first wins
+    if (seenLabels.has(s.label)) continue;
+    seenLabels.add(s.label);
     const key = `${s.agentId}:${s.sessionKey}`;
     if (knownSessions.has(key)) continue;
     knownSessions.set(key, {
