@@ -591,6 +591,83 @@ app.get('/api/agents/:agentId/sessions/:sessionKey', (req, res) => {
   res.json({ sessionInfo, events });
 });
 
+// ── Replay helper: send last 8 KB of a session's tool events to a single client ──
+
+/**
+ * Parse the last 8 KB of a session JSONL file and write toolStart / toolDone
+ * events directly to `res`.  Used to seed new SSE clients with the current
+ * tool state of already-active agents.
+ */
+function replaySessionForClient(agentId, sessionKey, res) {
+  const REPLAY_BYTES = 8 * 1024;
+  const filePath = path.join(AGENTS_DIR, agentId, 'sessions', `${sessionKey}.jsonl`);
+  try {
+    const stat = fs.statSync(filePath);
+    const startOffset = Math.max(0, stat.size - REPLAY_BYTES);
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(stat.size - startOffset);
+    fs.readSync(fd, buf, 0, buf.length, startOffset);
+    fs.closeSync(fd);
+
+    const text = buf.toString('utf8');
+    const lines = text.split('\n').filter((l) => l.trim());
+
+    for (const rawLine of lines) {
+      try {
+        const entry = JSON.parse(rawLine);
+        if (entry.type !== 'message') continue;
+        const msg = entry.message;
+        if (!msg) continue;
+
+        if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+          for (const block of msg.content) {
+            if (block.type === 'tool_use') {
+              let inputStr = '';
+              if (block.input) {
+                const inp = block.input;
+                inputStr =
+                  inp.command ||
+                  inp.file_path ||
+                  inp.path ||
+                  inp.query ||
+                  inp.url ||
+                  inp.message ||
+                  inp.action ||
+                  JSON.stringify(inp).slice(0, 80);
+              }
+              res.write(
+                `data: ${JSON.stringify({
+                  type: 'toolStart',
+                  agentId,
+                  sessionKey,
+                  tool: mapToolName(block.name),
+                  input: inputStr,
+                  toolCallId: block.id,
+                  timestamp: entry.timestamp,
+                })}\n\n`,
+              );
+            }
+          }
+        } else if (msg.role === 'toolResult' || msg.role === 'tool') {
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'toolDone',
+              agentId,
+              sessionKey,
+              toolCallId: msg.toolCallId || msg.tool_call_id,
+              timestamp: entry.timestamp,
+            })}\n\n`,
+          );
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+  } catch {
+    // file doesn't exist or unreadable — skip silently
+  }
+}
+
 // SSE endpoint — multiplexed live feed from ALL active sessions (M6)
 // MUST be declared before /api/agents/:agentId/sessions/:sessionKey/events to avoid
 // Express routing collision (Express matches in order; without this, 'events' would
@@ -601,9 +678,9 @@ app.get('/api/agents/events', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  feedClients.add(res);
-
-  // Replay agentAdded only for sessions currently being watched (active in last 2h)
+  // Replay agentAdded + recent tool state for all currently-watched sessions.
+  // This seeds the new client with the current agent state so they don't have
+  // to wait for the next tool call to see what's happening.
   for (const key of activeSessions.keys()) {
     const colonIdx = key.indexOf(':');
     const agentId = key.slice(0, colonIdx);
@@ -611,7 +688,11 @@ app.get('/api/agents/events', (req, res) => {
     const known = knownSessions.get(key);
     const label = known?.label || agentId;
     res.write(`data: ${JSON.stringify({ type: 'agentAdded', agentId, sessionKey, label })}\n\n`);
+    // Replay last 8 KB of tool events so the client sees current tool state
+    replaySessionForClient(agentId, sessionKey, res);
   }
+
+  feedClients.add(res);
 
   // Heartbeat comment every 15s to keep the connection alive
   const heartbeatInterval = setInterval(() => {

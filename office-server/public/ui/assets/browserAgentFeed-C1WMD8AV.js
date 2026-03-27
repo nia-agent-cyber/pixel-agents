@@ -1,4 +1,4 @@
-import { n as e } from './browserNotify-Cqk0UwaV.js';
+import { n as e } from './browserNotify-OZd34Hml.js';
 var t = 1e3,
   n = 3e4,
   r = 5,
@@ -73,8 +73,9 @@ function m(e, t, n, i, o) {
   if (!l) return;
   let { numericId: f, pendingTools: p } = l,
     m = Math.random().toString(36).slice(2, 7),
-    h = `feed-${Date.now().toString()}-${m}`,
+    h = o ? `feed-${o}` : `feed-${Date.now().toString()}-${m}`,
     g = o ?? n;
+  if (p.has(g)) return;
   p.set(g, h);
   let _ = `${n}${i ? `: ` + i.slice(0, 60) : ``}`;
   (l.recentTools.push(_),
@@ -92,13 +93,13 @@ function h(t, n, r) {
   let { numericId: c, pendingTools: l } = o,
     f = r ?? ``,
     p = l.get(f) ?? `feed-done-${Date.now().toString()}`;
-  (l.delete(f),
-    u({ type: `agentToolDone`, id: c, toolId: p }),
-    l.size === 0 &&
-      ((o.status = `waiting`),
+  if ((l.delete(f), u({ type: `agentToolDone`, id: c, toolId: p }), l.size === 0)) {
+    let n = o.status === `active`;
+    ((o.status = `waiting`),
       u({ type: `agentStatus`, id: c, status: `waiting` }),
       s(c),
-      e(t, o.label)));
+      n && e(t, o.label));
+  }
 }
 function g(e, t) {
   let n = d(e, t),

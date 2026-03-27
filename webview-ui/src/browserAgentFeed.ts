@@ -170,10 +170,15 @@ function onToolStart(
   const entry = activeAgents.get(key);
   if (!entry) return;
   const { numericId, pendingTools } = entry;
+  // Use a deterministic toolId when toolCallId is available so that replayed
+  // events (e.g. on SSE reconnect) deduplicate correctly in useExtensionMessages.
+  // The dedup guard there is `if (list.some((t) => t.toolId === toolId)) return prev`.
   const rand5 = Math.random().toString(36).slice(2, 7);
-  const toolId = `feed-${Date.now().toString()}-${rand5}`;
+  const toolId = toolCallId ? `feed-${toolCallId}` : `feed-${Date.now().toString()}-${rand5}`;
   // Key by toolCallId when available; fall back to tool name
   const lookupKey = toolCallId ?? tool;
+  // Skip if we're already tracking this tool call (duplicate from replay)
+  if (pendingTools.has(lookupKey)) return;
   pendingTools.set(lookupKey, toolId);
   const statusText = `${tool}${input ? ': ' + input.slice(0, 60) : ''}`;
 
@@ -200,12 +205,15 @@ function onToolDone(agentId: string, sessionKey: string, toolCallId: string | un
   pendingTools.delete(lookupKey);
   dispatch({ type: 'agentToolDone', id: numericId, toolId });
   if (pendingTools.size === 0) {
+    // M11: only notify if the agent was genuinely active (not a replayed done event)
+    const wasActive = entry.status === 'active';
     // Update detail store (M8)
     entry.status = 'waiting';
     dispatch({ type: 'agentStatus', id: numericId, status: 'waiting' });
     notifySubscribers(numericId);
-    // M11: notify user when agent becomes idle after active tool run
-    notifyAgentIdle(agentId, entry.label);
+    if (wasActive) {
+      notifyAgentIdle(agentId, entry.label);
+    }
   }
 }
 
